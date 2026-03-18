@@ -1,0 +1,45 @@
+services:
+  onlyoffice:
+    image: onlyoffice/documentserver:8.3
+    ports:
+      - "8080:80"
+    environment:
+      - JWT_ENABLED=true
+      - JWT_SECRET=${ONLYOFFICE_JWT_SECRET:-secret}
+    volumes:
+      - onlyoffice-data:/var/www/onlyoffice/Data
+      - onlyoffice-log:/var/log/onlyoffice
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost/healthcheck"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+
+  api:
+    build:
+      context: ./api
+      dockerfile: Dockerfile
+    ports:
+      - "3020:3020"
+    environment:
+      - PORT=3020
+      - HOST=0.0.0.0
+      - LOG_LEVEL=info
+      - ONLYOFFICE_URL=http://onlyoffice:80
+      - ONLYOFFICE_PUBLIC_URL=http://localhost:8080
+      - ONLYOFFICE_JWT_SECRET=${ONLYOFFICE_JWT_SECRET:-secret}
+      - API_PUBLIC_URL=http://localhost:3020
+      - API_INTERNAL_URL=http://api:3020
+    depends_on:
+      onlyoffice:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:3020/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+
+volumes:
+  onlyoffice-data:
+  onlyoffice-log:

@@ -1,0 +1,44 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+build/
+
+# Environment
+.env
+.env.*
+!.env.example
+
+# Temp
+temp/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+!.vscode/extensions.json
+.idea/
+.sfdx/
+*.swp
+*.swo
+
+# Logs
+*.log
+npm-debug.log*
+
+# Docker volumes
+data/
+
+# Coverage
+coverage/
+
+# Claude / AI control plane
+CLAUDE.md
+FIRST-SESSION-PROMPT.md
+project-profile.yaml
+CREDENTIALS.md
+.claude/
+docs/
