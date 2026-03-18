@@ -97,11 +97,8 @@ export async function documentRoutes(app: FastifyInstance): Promise<void> {
 
     const html = renderEditorPage({
       apiUrl: config.onlyofficePublicUrl,
-      publicApiUrl: config.apiPublicUrl,
       config: editorConfig,
       token: signedToken,
-      standalone: !session.callbackUrl,
-      key: session.key,
     });
 
     return reply.type('text/html').send(html);
@@ -251,38 +248,9 @@ function buildEditorConfig(session: {
 
 function renderEditorPage(opts: {
   apiUrl: string;
-  publicApiUrl: string;
   config: ReturnType<typeof buildEditorConfig>;
   token: string;
-  standalone: boolean;
-  key: string;
 }) {
-  const downloadBar = opts.standalone ? `
-  <div id="download-bar" style="position:fixed;top:0;right:20px;z-index:10000;padding:8px;">
-    <button onclick="downloadDoc()" style="padding:8px 16px;background:#4CAF50;color:white;border:none;border-radius:4px;cursor:pointer;font-size:14px;">
-      Download Edited File
-    </button>
-    <span id="dl-status" style="margin-left:8px;color:#666;font-size:13px;"></span>
-  </div>
-  <script>
-    async function downloadDoc() {
-      const status = document.getElementById('dl-status');
-      status.textContent = 'Fetching...';
-      try {
-        const res = await fetch('${opts.publicApiUrl}/api/documents/${opts.key}/download');
-        const data = await res.json();
-        if (data.downloadUrl) {
-          window.open(data.downloadUrl, '_blank');
-          status.textContent = 'Done!';
-        } else {
-          status.textContent = data.error || 'Save the document first';
-        }
-      } catch (e) {
-        status.textContent = 'Error — try saving first';
-      }
-    }
-  </script>` : '';
-
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -295,7 +263,6 @@ function renderEditorPage(opts: {
   </style>
 </head>
 <body>
-  ${downloadBar}
   <div id="editor"></div>
   <script src="${opts.apiUrl}/web-apps/apps/api/documents/api.js"></script>
   <script>
