@@ -27,10 +27,10 @@ services:
       - HOST=0.0.0.0
       - LOG_LEVEL=info
       - ONLYOFFICE_URL=http://onlyoffice:80
-      - ONLYOFFICE_PUBLIC_URL=http://localhost:8080
+      - ONLYOFFICE_PUBLIC_URL=${ONLYOFFICE_PUBLIC_URL:-http://localhost:8080}
       - ONLYOFFICE_JWT_SECRET=${ONLYOFFICE_JWT_SECRET:-secret}
-      - API_PUBLIC_URL=http://localhost:3020
-      - API_INTERNAL_URL=http://api:3020
+      - API_PUBLIC_URL=${API_PUBLIC_URL:-http://localhost:3020}
+      - API_INTERNAL_URL=${API_INTERNAL_URL:-http://api:3020}
     depends_on:
       onlyoffice:
         condition: service_healthy
