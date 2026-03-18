@@ -99,6 +99,90 @@ describe('POST /api/documents/callback', () => {
   });
 });
 
+describe('Standalone mode (no callbackUrl)', () => {
+  it('opens a document without callbackUrl', async () => {
+    const app = buildApp();
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/documents/open',
+      payload: {
+        fileUrl: 'https://storage.googleapis.com/bucket/test.docx',
+        user: { id: 'user-1', name: 'Test User' },
+      },
+    });
+
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    expect(body.editorUrl).toContain('/editor/');
+    expect(body.key).toBeDefined();
+  });
+
+  it('editor page shows download button in standalone mode', async () => {
+    const app = buildApp();
+    const openRes = await app.inject({
+      method: 'POST',
+      url: '/api/documents/open',
+      payload: {
+        fileUrl: 'https://storage.googleapis.com/bucket/test.docx',
+        user: { id: 'user-1', name: 'Test User' },
+      },
+    });
+    const { key } = openRes.json();
+
+    const editorRes = await app.inject({
+      method: 'GET',
+      url: `/editor/${key}`,
+    });
+
+    expect(editorRes.statusCode).toBe(200);
+    expect(editorRes.body).toContain('download-bar');
+    expect(editorRes.body).toContain('Download Edited File');
+  });
+
+  it('editor page does NOT show download button with callbackUrl', async () => {
+    const app = buildApp();
+    const openRes = await app.inject({
+      method: 'POST',
+      url: '/api/documents/open',
+      payload: {
+        fileUrl: 'https://storage.googleapis.com/bucket/test.docx',
+        callbackUrl: 'https://api.example.com/callback',
+        user: { id: 'user-1', name: 'Test User' },
+      },
+    });
+    const { key } = openRes.json();
+
+    const editorRes = await app.inject({
+      method: 'GET',
+      url: `/editor/${key}`,
+    });
+
+    expect(editorRes.statusCode).toBe(200);
+    expect(editorRes.body).not.toContain('download-bar');
+  });
+
+  it('download endpoint returns 404 before save', async () => {
+    const app = buildApp();
+    const openRes = await app.inject({
+      method: 'POST',
+      url: '/api/documents/open',
+      payload: {
+        fileUrl: 'https://storage.googleapis.com/bucket/test.docx',
+        user: { id: 'user-1', name: 'Test User' },
+      },
+    });
+    const { key } = openRes.json();
+
+    const dlRes = await app.inject({
+      method: 'GET',
+      url: `/api/documents/${key}/download`,
+    });
+
+    expect(dlRes.statusCode).toBe(404);
+    expect(dlRes.json().error).toContain('No saved version');
+  });
+});
+
 describe('GET /api/sessions', () => {
   it('lists active sessions', async () => {
     const app = buildApp();

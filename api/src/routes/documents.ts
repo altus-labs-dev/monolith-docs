@@ -6,7 +6,8 @@ import { resolveDownloadUrl, transferToGcs } from '../storage.js';
 
 interface OpenRequestBody {
   fileUrl: string;
-  callbackUrl: string;
+  /** Optional — if omitted, standalone mode: user downloads the edited file directly */
+  callbackUrl?: string;
   fileName?: string;
   user: {
     id: string;
@@ -29,11 +30,13 @@ const sessions = new Map<string, {
   key: string;
   fileUrl: string;
   resolvedFileUrl: string;
-  callbackUrl: string;
+  callbackUrl?: string;
   fileName: string;
   user: { id: string; name: string };
   permissions: { edit: boolean; download: boolean; print: boolean };
   saveTo?: { bucket: string; object: string };
+  /** Populated by OnlyOffice callback — the URL to download the edited document */
+  lastSavedUrl?: string;
   createdAt: number;
 }>();
 
@@ -43,8 +46,8 @@ export async function documentRoutes(app: FastifyInstance): Promise<void> {
   app.post<{ Body: OpenRequestBody }>('/api/documents/open', async (req, reply) => {
     const { fileUrl, callbackUrl, fileName, user, permissions, saveTo } = req.body;
 
-    if (!fileUrl || !callbackUrl || !user?.id || !user?.name) {
-      return reply.status(400).send({ error: 'Missing required fields: fileUrl, callbackUrl, user.id, user.name' });
+    if (!fileUrl || !user?.id || !user?.name) {
+      return reply.status(400).send({ error: 'Missing required fields: fileUrl, user.id, user.name' });
     }
 
     const key = crypto.randomUUID();
@@ -94,8 +97,11 @@ export async function documentRoutes(app: FastifyInstance): Promise<void> {
 
     const html = renderEditorPage({
       apiUrl: config.onlyofficePublicUrl,
+      publicApiUrl: config.apiPublicUrl,
       config: editorConfig,
       token: signedToken,
+      standalone: !session.callbackUrl,
+      key: session.key,
     });
 
     return reply.type('text/html').send(html);
@@ -133,28 +139,34 @@ export async function documentRoutes(app: FastifyInstance): Promise<void> {
         }
       }
 
-      try {
-        const callbackRes = await fetch(session.callbackUrl, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            status: status === 2 ? 'saved' : 'force-saved',
-            downloadUrl,
-            key,
-            users,
-          }),
-        });
+      // Store the latest download URL for standalone mode
+      session.lastSavedUrl = downloadUrl;
 
-        if (!callbackRes.ok) {
-          app.log.error({ callbackUrl: session.callbackUrl, status: callbackRes.status }, 'Consumer callback failed');
+      // Notify consumer if callbackUrl was provided
+      if (session.callbackUrl) {
+        try {
+          const callbackRes = await fetch(session.callbackUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              status: status === 2 ? 'saved' : 'force-saved',
+              downloadUrl,
+              key,
+              users,
+            }),
+          });
+
+          if (!callbackRes.ok) {
+            app.log.error({ callbackUrl: session.callbackUrl, status: callbackRes.status }, 'Consumer callback failed');
+          }
+        } catch (err: unknown) {
+          const message = err instanceof Error ? err.message : 'unknown error';
+          app.log.error({ callbackUrl: session.callbackUrl, error: message }, 'Consumer callback error');
         }
-      } catch (err: unknown) {
-        const message = err instanceof Error ? err.message : 'unknown error';
-        app.log.error({ callbackUrl: session.callbackUrl, error: message }, 'Consumer callback error');
       }
 
-      // Clean up closed sessions
-      if (status === 2) {
+      // Clean up closed sessions (but not standalone — user may still need to download)
+      if (status === 2 && session.callbackUrl) {
         sessions.delete(key);
       }
     }
@@ -165,6 +177,18 @@ export async function documentRoutes(app: FastifyInstance): Promise<void> {
 
     // OnlyOffice expects { "error": 0 } to acknowledge
     return reply.send({ error: 0 });
+  });
+
+  // --- Download endpoint for standalone mode ---
+  app.get<{ Params: { key: string } }>('/api/documents/:key/download', async (req, reply) => {
+    const session = sessions.get(req.params.key);
+    if (!session) {
+      return reply.status(404).send({ error: 'Session not found or expired' });
+    }
+    if (!session.lastSavedUrl) {
+      return reply.status(404).send({ error: 'No saved version available yet — save the document first' });
+    }
+    return reply.send({ downloadUrl: session.lastSavedUrl, fileName: session.fileName });
   });
 
   // --- Active Sessions (admin) ---
@@ -227,9 +251,38 @@ function buildEditorConfig(session: {
 
 function renderEditorPage(opts: {
   apiUrl: string;
+  publicApiUrl: string;
   config: ReturnType<typeof buildEditorConfig>;
   token: string;
+  standalone: boolean;
+  key: string;
 }) {
+  const downloadBar = opts.standalone ? `
+  <div id="download-bar" style="position:fixed;top:0;right:20px;z-index:10000;padding:8px;">
+    <button onclick="downloadDoc()" style="padding:8px 16px;background:#4CAF50;color:white;border:none;border-radius:4px;cursor:pointer;font-size:14px;">
+      Download Edited File
+    </button>
+    <span id="dl-status" style="margin-left:8px;color:#666;font-size:13px;"></span>
+  </div>
+  <script>
+    async function downloadDoc() {
+      const status = document.getElementById('dl-status');
+      status.textContent = 'Fetching...';
+      try {
+        const res = await fetch('${opts.publicApiUrl}/api/documents/${opts.key}/download');
+        const data = await res.json();
+        if (data.downloadUrl) {
+          window.open(data.downloadUrl, '_blank');
+          status.textContent = 'Done!';
+        } else {
+          status.textContent = data.error || 'Save the document first';
+        }
+      } catch (e) {
+        status.textContent = 'Error — try saving first';
+      }
+    }
+  </script>` : '';
+
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -242,6 +295,7 @@ function renderEditorPage(opts: {
   </style>
 </head>
 <body>
+  ${downloadBar}
   <div id="editor"></div>
   <script src="${opts.apiUrl}/web-apps/apps/api/documents/api.js"></script>
   <script>

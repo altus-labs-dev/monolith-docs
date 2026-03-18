@@ -1,0 +1,67 @@
+import type { FastifyInstance } from 'fastify';
+import { randomUUID } from 'node:crypto';
+import { writeFile, mkdir, unlink } from 'node:fs/promises';
+import path from 'node:path';
+import { config } from '../config.js';
+
+// Temp upload directory — cleaned up after TTL expires
+const UPLOAD_DIR = process.env['UPLOAD_DIR'] ?? '/tmp/monolith-docs-uploads';
+const UPLOAD_TTL_MS = Number(process.env['UPLOAD_TTL_MS'] ?? 24 * 60 * 60 * 1000); // 24h
+
+// Track uploads for cleanup
+const uploads = new Map<string, { path: string; createdAt: number }>();
+
+export async function fileRoutes(app: FastifyInstance): Promise<void> {
+  await mkdir(UPLOAD_DIR, { recursive: true });
+
+  // Periodic cleanup of expired uploads
+  const cleanupInterval = setInterval(() => {
+    const now = Date.now();
+    for (const [id, upload] of uploads) {
+      if (now - upload.createdAt > UPLOAD_TTL_MS) {
+        unlink(upload.path).catch(() => {});
+        uploads.delete(id);
+      }
+    }
+  }, 60 * 60 * 1000); // Check every hour
+
+  app.addHook('onClose', () => clearInterval(cleanupInterval));
+
+  app.post('/api/files/upload', async (req, reply) => {
+    const file = await req.file();
+    if (!file) {
+      return reply.status(400).send({ error: 'No file provided' });
+    }
+
+    const id = randomUUID();
+    const ext = path.extname(file.filename) || '.docx';
+    const filename = `${id}${ext}`;
+    const filePath = path.join(UPLOAD_DIR, filename);
+
+    const buffer = await file.toBuffer();
+    await writeFile(filePath, buffer);
+
+    uploads.set(id, { path: filePath, createdAt: Date.now() });
+
+    // Return a fileUrl that OnlyOffice can reach (internal API URL)
+    const fileUrl = `${config.apiInternalUrl}/api/files/${id}${ext}`;
+    const publicUrl = `${config.apiPublicUrl}/api/files/${id}${ext}`;
+
+    app.log.info({ id, filename: file.filename, size: buffer.length }, 'File uploaded');
+
+    return reply.send({ id, fileUrl, publicUrl, filename: file.filename });
+  });
+
+  // Serve uploaded files (OnlyOffice downloads from here)
+  app.get<{ Params: { filename: string } }>('/api/files/:filename', async (req, reply) => {
+    const { filename } = req.params;
+    const id = path.basename(filename, path.extname(filename));
+    const upload = uploads.get(id);
+
+    if (!upload) {
+      return reply.status(404).send({ error: 'File not found or expired' });
+    }
+
+    return reply.sendFile(path.basename(upload.path), UPLOAD_DIR);
+  });
+}

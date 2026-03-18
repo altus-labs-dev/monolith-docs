@@ -22,8 +22,8 @@ case "${ENV}" in
     ;;
   prod)
     VM_NAME="monolith-docs-prod"
-    MACHINE_TYPE="e2-standard-2"
-    DISK_SIZE="80"
+    MACHINE_TYPE="e2-medium"
+    DISK_SIZE="40"
     ;;
   *)
     echo "Unknown environment: ${ENV}. Use 'dev' or 'prod'."
