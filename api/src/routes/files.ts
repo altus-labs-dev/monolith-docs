@@ -5,6 +5,22 @@ import { writeFile, mkdir, unlink, stat } from 'node:fs/promises';
 import path from 'node:path';
 import { config } from '../config.js';
 
+const MIME_TYPES: Record<string, string> = {
+  '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  '.doc': 'application/msword',
+  '.xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  '.xls': 'application/vnd.ms-excel',
+  '.pptx': 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+  '.ppt': 'application/vnd.ms-powerpoint',
+  '.pdf': 'application/pdf',
+  '.odt': 'application/vnd.oasis.opendocument.text',
+  '.ods': 'application/vnd.oasis.opendocument.spreadsheet',
+  '.odp': 'application/vnd.oasis.opendocument.presentation',
+  '.csv': 'text/csv',
+  '.rtf': 'application/rtf',
+  '.txt': 'text/plain',
+};
+
 // Temp upload directory — cleaned up after TTL expires
 const UPLOAD_DIR = process.env['UPLOAD_DIR'] ?? '/tmp/monolith-docs-uploads';
 const UPLOAD_TTL_MS = Number(process.env['UPLOAD_TTL_MS'] ?? 24 * 60 * 60 * 1000); // 24h
@@ -66,7 +82,7 @@ export async function fileRoutes(app: FastifyInstance): Promise<void> {
     const stream = createReadStream(upload.path);
     const fileStat = await stat(upload.path);
     return reply
-      .header('Content-Type', 'application/octet-stream')
+      .header('Content-Type', MIME_TYPES[path.extname(filename).toLowerCase()] ?? 'application/octet-stream')
       .header('Content-Length', fileStat.size)
       .send(stream);
   });
