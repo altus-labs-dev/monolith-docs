@@ -1,6 +1,27 @@
 import { Storage } from '@google-cloud/storage';
 import { config } from './config.js';
 
+const MIME_TYPES: Record<string, string> = {
+  docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  doc: 'application/msword',
+  xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  xls: 'application/vnd.ms-excel',
+  pptx: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+  ppt: 'application/vnd.ms-powerpoint',
+  pdf: 'application/pdf',
+  odt: 'application/vnd.oasis.opendocument.text',
+  ods: 'application/vnd.oasis.opendocument.spreadsheet',
+  odp: 'application/vnd.oasis.opendocument.presentation',
+  csv: 'text/csv',
+  rtf: 'application/rtf',
+  txt: 'text/plain',
+};
+
+function mimeFromPath(path: string): string {
+  const ext = (path.split('.').pop() ?? '').toLowerCase();
+  return MIME_TYPES[ext] ?? 'application/octet-stream';
+}
+
 let storage: Storage | undefined;
 
 function getStorage(): Storage {
@@ -97,7 +118,7 @@ export async function transferToGcs(
 
   const file = getStorage().bucket(destinationBucket).file(destinationObject);
   await file.save(buffer, {
-    contentType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    contentType: mimeFromPath(destinationObject),
     resumable: false,
   });
 

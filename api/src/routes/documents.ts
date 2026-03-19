@@ -51,7 +51,7 @@ export async function documentRoutes(app: FastifyInstance): Promise<void> {
     }
 
     const key = crypto.randomUUID();
-    const resolvedFileName = fileName ?? 'document.docx';
+    const resolvedFileName = fileName ?? inferFileName(fileUrl);
     const resolvedPermissions = {
       edit: permissions?.edit ?? true,
       download: permissions?.download ?? true,
@@ -242,8 +242,36 @@ function buildEditorConfig(session: {
         compactHeader: true,
       },
     },
-    documentType: 'word',
+    documentType: getDocumentType(session.fileName),
   };
+}
+
+/** Extract filename from URL, falling back to document.docx */
+function inferFileName(fileUrl: string): string {
+  try {
+    const pathname = new URL(fileUrl).pathname;
+    const basename = pathname.split('/').pop();
+    if (basename && basename.includes('.')) return basename;
+  } catch { /* not a valid URL */ }
+  return 'document.docx';
+}
+
+/** Map file extension to OnlyOffice documentType */
+function getDocumentType(fileName: string): 'word' | 'cell' | 'slide' | 'pdf' {
+  const ext = (fileName.split('.').pop() ?? '').toLowerCase();
+
+  const spreadsheetExts = new Set([
+    'xls', 'xlsx', 'xlsm', 'xlsb', 'ods', 'fods', 'csv', 'xlst', 'xltx', 'xltm',
+  ]);
+  const presentationExts = new Set([
+    'ppt', 'pptx', 'pptm', 'pps', 'ppsx', 'ppsm', 'odp', 'fodp', 'pot', 'potx', 'potm',
+  ]);
+  const pdfExts = new Set(['pdf', 'djvu', 'xps']);
+
+  if (spreadsheetExts.has(ext)) return 'cell';
+  if (presentationExts.has(ext)) return 'slide';
+  if (pdfExts.has(ext)) return 'pdf';
+  return 'word';
 }
 
 function renderEditorPage(opts: {
