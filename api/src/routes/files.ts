@@ -1,6 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import { randomUUID } from 'node:crypto';
-import { writeFile, mkdir, unlink } from 'node:fs/promises';
+import { createReadStream } from 'node:fs';
+import { writeFile, mkdir, unlink, stat } from 'node:fs/promises';
 import path from 'node:path';
 import { config } from '../config.js';
 
@@ -62,6 +63,11 @@ export async function fileRoutes(app: FastifyInstance): Promise<void> {
       return reply.status(404).send({ error: 'File not found or expired' });
     }
 
-    return reply.sendFile(path.basename(upload.path), UPLOAD_DIR);
+    const stream = createReadStream(upload.path);
+    const fileStat = await stat(upload.path);
+    return reply
+      .header('Content-Type', 'application/octet-stream')
+      .header('Content-Length', fileStat.size)
+      .send(stream);
   });
 }
