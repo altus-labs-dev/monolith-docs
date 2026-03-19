@@ -237,10 +237,22 @@ function buildEditorConfig(session: {
         name: session.user.name,
       },
       lang: 'en',
-      customization: {
-        forcesave: true,
-        compactHeader: true,
-      },
+      customization: session.permissions.edit
+        ? {
+            forcesave: true,
+            compactHeader: true,
+          }
+        : {
+            // View-only mode: strip UI to a clean, minimal viewer
+            compactHeader: true,
+            toolbarHideFileName: true,
+            hideRightMenu: true,
+            hideLeftMenu: true,
+            toolbar: false,
+            header: false,
+            statusBar: false,
+            plugins: false,
+          },
     },
     documentType: getDocumentType(session.fileName),
   };
