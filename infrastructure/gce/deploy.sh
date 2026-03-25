@@ -22,8 +22,8 @@ case "${ENV}" in
     ;;
   prod)
     VM_NAME="monolith-docs-prod"
-    MACHINE_TYPE="e2-medium"
-    DISK_SIZE="40"
+    MACHINE_TYPE="e2-standard-2"
+    DISK_SIZE="80"
     ;;
   *)
     echo "Unknown environment: ${ENV}. Use 'dev' or 'prod'."
@@ -50,7 +50,7 @@ if ! gcloud compute firewall-rules describe "${FIREWALL_RULE}" --project="${PROJ
     --priority=1000 \
     --network=default \
     --action=ALLOW \
-    --rules=tcp:80,tcp:443 \
+    --rules=tcp:443 \
     --source-ranges=0.0.0.0/0 \
     --target-tags="monolith-docs-${ENV}"
 else
@@ -86,6 +86,8 @@ echo "SSH:         gcloud compute ssh ${VM_NAME} --project=${PROJECT_ID} --zone=
 echo ""
 echo "Next steps:"
 echo "  1. SSH into the VM and configure .env"
-echo "  2. Set up DNS: point docs-${ENV}.monolithcrm.com → ${EXTERNAL_IP}"
-echo "  3. Run: sudo certbot --nginx -d docs-${ENV}.monolithcrm.com"
-echo "  4. Copy NGINX config: infrastructure/nginx/monolith-docs.conf → /etc/nginx/sites-available/"
+echo "  2. Set up DNS: point app.monolithdocs.com → ${EXTERNAL_IP} (Cloudflare proxied)"
+echo "  3. Generate Cloudflare origin certificate for app.monolithdocs.com"
+echo "  4. Place origin cert at /etc/ssl/cloudflare/origin.pem and key at origin.key"
+echo "  5. Run infrastructure/cloudflare/setup-tunnel.sh for connect/crm subdomain routing"
+echo "  6. Copy NGINX config and reload: infrastructure/nginx/monolith-docs.conf"

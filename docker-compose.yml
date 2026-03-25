@@ -2,10 +2,10 @@ services:
   onlyoffice:
     image: onlyoffice/documentserver:8.3
     ports:
-      - "8080:80"
+      - "127.0.0.1:8080:80"
     environment:
       - JWT_ENABLED=true
-      - JWT_SECRET=${ONLYOFFICE_JWT_SECRET:-secret}
+      - JWT_SECRET=${ONLYOFFICE_JWT_SECRET:-dev-only-secret-do-not-use-in-prod}
     volumes:
       - onlyoffice-data:/var/www/onlyoffice/Data
       - onlyoffice-log:/var/log/onlyoffice
@@ -21,16 +21,22 @@ services:
       context: ./api
       dockerfile: Dockerfile
     ports:
-      - "3020:3020"
+      - "127.0.0.1:3020:3020"
     environment:
       - PORT=3020
       - HOST=0.0.0.0
-      - LOG_LEVEL=info
+      - NODE_ENV=${NODE_ENV:-development}
+      - LOG_LEVEL=${LOG_LEVEL:-info}
       - ONLYOFFICE_URL=http://onlyoffice:80
       - ONLYOFFICE_PUBLIC_URL=${ONLYOFFICE_PUBLIC_URL:-http://localhost:8080}
-      - ONLYOFFICE_JWT_SECRET=${ONLYOFFICE_JWT_SECRET:-secret}
+      - ONLYOFFICE_JWT_SECRET=${ONLYOFFICE_JWT_SECRET:-dev-only-secret-do-not-use-in-prod}
       - API_PUBLIC_URL=${API_PUBLIC_URL:-http://localhost:3020}
       - API_INTERNAL_URL=${API_INTERNAL_URL:-http://api:3020}
+      - CONSUMERS=${CONSUMERS:-}
+      - CONSUMER_API_KEY=${CONSUMER_API_KEY:-}
+      - CORS_ORIGINS=${CORS_ORIGINS:-}
+      - RATE_LIMIT_MAX=${RATE_LIMIT_MAX:-100}
+      - SESSION_TTL_MS=${SESSION_TTL_MS:-}
     depends_on:
       onlyoffice:
         condition: service_healthy

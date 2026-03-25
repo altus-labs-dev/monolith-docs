@@ -29,11 +29,16 @@ if ! command -v nginx &>/dev/null; then
   systemctl enable nginx
 fi
 
-# Install certbot if not present
-if ! command -v certbot &>/dev/null; then
-  echo "Installing Certbot..."
-  apt-get install -y certbot python3-certbot-nginx
+# Install cloudflared if not present
+if ! command -v cloudflared &>/dev/null; then
+  echo "Installing cloudflared..."
+  curl -L https://pkg.cloudflare.com/cloudflared-stable-linux-amd64.deb -o /tmp/cloudflared.deb
+  dpkg -i /tmp/cloudflared.deb
+  rm /tmp/cloudflared.deb
 fi
+
+# Create directory for Cloudflare origin certificates
+mkdir -p /etc/ssl/cloudflare
 
 # Clone or update repo
 APP_DIR="/opt/monolith-docs"
@@ -62,5 +67,13 @@ docker compose pull
 docker compose up -d --build
 
 echo "=== Startup complete $(date) ==="
-echo "OnlyOffice: http://localhost:8080"
-echo "API:        http://localhost:3020"
+echo "OnlyOffice: http://127.0.0.1:8080 (localhost only)"
+echo "API:        http://127.0.0.1:3020 (localhost only)"
+echo ""
+echo "=== Manual steps required ==="
+echo "1. Place Cloudflare origin cert at /etc/ssl/cloudflare/origin.pem"
+echo "2. Place Cloudflare origin key at /etc/ssl/cloudflare/origin.key"
+echo "3. Run infrastructure/cloudflare/setup-tunnel.sh to configure the tunnel"
+echo "4. Copy infrastructure/nginx/monolith-docs.conf to /etc/nginx/sites-available/"
+echo "5. ln -s /etc/nginx/sites-available/monolith-docs.conf /etc/nginx/sites-enabled/"
+echo "6. nginx -t && systemctl reload nginx"

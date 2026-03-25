@@ -1,13 +1,16 @@
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
+import fp from 'fastify-plugin';
 import jwt from 'jsonwebtoken';
 import jwksClient from 'jwks-rsa';
-import { findConsumerByApiKey, getConsumers, getJwksConsumers } from './consumers.js';
-import type { Consumer, JwksAuth } from './consumers.js';
+import { config } from './config.js';
+import { findConsumersByHostname, getConsumers } from './consumers.js';
+import type { Consumer, HmacAuth, JwksAuth } from './consumers.js';
 
 declare module 'fastify' {
   interface FastifyRequest {
     consumer?: Consumer;
     consumerId?: string;
+    jwtPayload?: jwt.JwtPayload;
   }
 }
 
@@ -45,58 +48,105 @@ async function verifyJwksToken(token: string, auth: JwksAuth): Promise<jwt.JwtPa
   });
 }
 
-export async function authPlugin(app: FastifyInstance): Promise<void> {
+function verifyHmacToken(token: string, auth: HmacAuth): jwt.JwtPayload {
+  const decoded = jwt.verify(token, auth.secret, {
+    algorithms: ['HS256'],
+    issuer: auth.issuer,
+    audience: auth.audience,
+  });
+  if (typeof decoded === 'string') {
+    throw new Error('Unexpected string JWT payload');
+  }
+  return decoded;
+}
+
+export const authPlugin = fp(async function authPlugin(app: FastifyInstance): Promise<void> {
   app.decorateRequest('consumer', undefined);
   app.decorateRequest('consumerId', undefined);
+  app.decorateRequest('jwtPayload', undefined);
 
   app.addHook('onRequest', async (req: FastifyRequest, reply: FastifyReply) => {
-    // Skip auth for health, status, editor pages, static files, and callback (OnlyOffice calls this)
-    const skipPaths = ['/health', '/api/status', '/api/documents/callback'];
-    if (
-      skipPaths.some(p => req.url === p) ||
-      req.url.startsWith('/editor/') ||
-      req.url.startsWith('/files/')
-    ) {
+    // Public paths — no auth needed
+    if (req.url === '/health' || req.url === '/api/status' || req.url.startsWith('/editor/')) {
       return;
     }
 
-    // Skip auth entirely if no consumers configured (local dev mode)
-    if (getConsumers().length === 0) {
+    // OnlyOffice callback — skips consumer auth (route handler verifies OnlyOffice JWT)
+    if (req.url === '/api/documents/callback') {
+      return;
+    }
+
+    // File serving — OnlyOffice fetches uploaded files by unguessable UUID
+    if (req.method === 'GET' && req.url.startsWith('/api/files/')) {
+      return;
+    }
+
+    // In production, consumers MUST be configured
+    const isProduction = config.nodeEnv === 'production';
+    const allConsumers = getConsumers();
+    if (allConsumers.length === 0) {
+      if (isProduction) {
+        app.log.error('No consumers configured in production — rejecting all API requests');
+        return reply.status(503).send({ error: 'Service not configured' });
+      }
+      // Dev mode: skip auth when no consumers configured
       return;
     }
 
     const authHeader = req.headers.authorization;
-    if (!authHeader) {
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      app.log.warn({ url: req.url, method: req.method, ip: req.ip }, 'Auth failed: missing or malformed Authorization header');
       return reply.status(401).send({ error: 'Missing Authorization header' });
     }
 
-    // API key: "Bearer <api-key>"
-    if (authHeader.startsWith('Bearer ')) {
-      const token = authHeader.slice(7);
+    const token = authHeader.slice(7);
+    const hostname = req.hostname;
+    const candidates = findConsumersByHostname(hostname);
 
-      // Try API key first
-      const consumer = findConsumerByApiKey(token);
-      if (consumer) {
-        req.consumer = consumer;
-        req.consumerId = consumer.id;
+    // Try API key (dev only — production rejects api-key consumers at startup)
+    for (const c of candidates) {
+      if (c.auth.mode === 'api-key' && c.auth.key === token) {
+        req.consumer = c;
+        req.consumerId = c.id;
         return;
-      }
-
-      // Try JWKS consumers
-      const jwksConsumers = getJwksConsumers();
-      for (const c of jwksConsumers) {
-        if (c.auth.mode !== 'jwks') continue;
-        try {
-          await verifyJwksToken(token, c.auth);
-          req.consumer = c;
-          req.consumerId = c.id;
-          return;
-        } catch {
-          // Try next consumer
-        }
       }
     }
 
+    // Try HMAC consumers
+    for (const c of candidates) {
+      if (c.auth.mode !== 'hmac') continue;
+      try {
+        const payload = verifyHmacToken(token, c.auth);
+        req.consumer = c;
+        req.consumerId = c.id;
+        req.jwtPayload = payload;
+        return;
+      } catch (err: unknown) {
+        const message = err instanceof Error ? err.message : 'unknown';
+        app.log.debug({ consumerId: c.id, error: message }, 'HMAC verification failed, trying next consumer');
+      }
+    }
+
+    // Try JWKS consumers
+    for (const c of candidates) {
+      if (c.auth.mode !== 'jwks') continue;
+      try {
+        const payload = await verifyJwksToken(token, c.auth);
+        req.consumer = c;
+        req.consumerId = c.id;
+        req.jwtPayload = payload;
+        return;
+      } catch (err: unknown) {
+        const message = err instanceof Error ? err.message : 'unknown';
+        app.log.debug({ consumerId: c.id, error: message }, 'JWKS verification failed, trying next consumer');
+      }
+    }
+
+    // All auth methods exhausted
+    app.log.warn(
+      { url: req.url, method: req.method, ip: req.ip, hostname, candidateCount: candidates.length },
+      'Auth failed: no matching consumer for token',
+    );
     return reply.status(401).send({ error: 'Invalid or expired credentials' });
   });
-}
+});

@@ -1,0 +1,149 @@
+import { describe, it, expect } from 'vitest';
+import jwt from 'jsonwebtoken';
+import { buildApp } from './app.js';
+import { resetConsumers, setConsumersForTest } from './consumers.js';
+import type { Consumer } from './consumers.js';
+
+const HMAC_SECRET = 'a-very-long-secret-that-is-at-least-32-characters';
+
+function freshApp(consumerList?: Consumer[]) {
+  resetConsumers();
+  if (consumerList) {
+    setConsumersForTest(consumerList);
+  }
+  return buildApp();
+}
+
+const hmacConsumers: Consumer[] = [{
+  id: 'test-hmac',
+  name: 'Test HMAC',
+  auth: { mode: 'hmac', secret: HMAC_SECRET, issuer: 'test-issuer' },
+}];
+
+const apiKeyConsumers: Consumer[] = [{
+  id: 'test-apikey',
+  name: 'Test API Key',
+  auth: { mode: 'api-key', key: 'test-dev-key' },
+}];
+
+const payload = { fileUrl: 'https://example.com/test.docx', user: { id: 'u1', name: 'User' } };
+
+describe('HMAC auth', () => {
+  it('authenticates with valid HMAC JWT', async () => {
+    const app = freshApp(hmacConsumers);
+    const token = jwt.sign({ sub: 'preview' }, HMAC_SECRET, {
+      algorithm: 'HS256', issuer: 'test-issuer', expiresIn: '5m',
+    });
+    const res = await app.inject({
+      method: 'POST', url: '/api/documents/open',
+      headers: { authorization: `Bearer ${token}` },
+      payload,
+    });
+    expect(res.statusCode).toBe(200);
+  });
+
+  it('rejects expired HMAC JWT', async () => {
+    const app = freshApp(hmacConsumers);
+    const token = jwt.sign({ sub: 'preview' }, HMAC_SECRET, {
+      algorithm: 'HS256', issuer: 'test-issuer', expiresIn: '-1s',
+    });
+    const res = await app.inject({
+      method: 'POST', url: '/api/documents/open',
+      headers: { authorization: `Bearer ${token}` },
+      payload,
+    });
+    expect(res.statusCode).toBe(401);
+  });
+
+  it('rejects HMAC JWT with wrong secret', async () => {
+    const app = freshApp(hmacConsumers);
+    const token = jwt.sign({ sub: 'preview' }, 'wrong-secret-that-is-long-enough-32chars', {
+      algorithm: 'HS256', issuer: 'test-issuer', expiresIn: '5m',
+    });
+    const res = await app.inject({
+      method: 'POST', url: '/api/documents/open',
+      headers: { authorization: `Bearer ${token}` },
+      payload,
+    });
+    expect(res.statusCode).toBe(401);
+  });
+
+  it('rejects HMAC JWT with wrong issuer', async () => {
+    const app = freshApp(hmacConsumers);
+    const token = jwt.sign({ sub: 'preview' }, HMAC_SECRET, {
+      algorithm: 'HS256', issuer: 'wrong-issuer', expiresIn: '5m',
+    });
+    const res = await app.inject({
+      method: 'POST', url: '/api/documents/open',
+      headers: { authorization: `Bearer ${token}` },
+      payload,
+    });
+    expect(res.statusCode).toBe(401);
+  });
+
+  it('rejects request with missing auth header', async () => {
+    const app = freshApp(hmacConsumers);
+    const res = await app.inject({
+      method: 'POST', url: '/api/documents/open',
+      payload,
+    });
+    expect(res.statusCode).toBe(401);
+  });
+});
+
+describe('API key auth', () => {
+  it('authenticates with valid API key', async () => {
+    const app = freshApp(apiKeyConsumers);
+    const res = await app.inject({
+      method: 'POST', url: '/api/documents/open',
+      headers: { authorization: 'Bearer test-dev-key' },
+      payload,
+    });
+    expect(res.statusCode).toBe(200);
+  });
+
+  it('rejects invalid API key', async () => {
+    const app = freshApp(apiKeyConsumers);
+    const res = await app.inject({
+      method: 'POST', url: '/api/documents/open',
+      headers: { authorization: 'Bearer wrong-key' },
+      payload,
+    });
+    expect(res.statusCode).toBe(401);
+  });
+});
+
+describe('Dev mode', () => {
+  it('skips auth when no consumers configured', async () => {
+    const app = freshApp(); // no consumers = empty
+    const res = await app.inject({
+      method: 'POST', url: '/api/documents/open',
+      payload,
+    });
+    expect(res.statusCode).toBe(200);
+  });
+});
+
+describe('Auth-exempt paths', () => {
+  it('/health does not require auth', async () => {
+    const app = freshApp(hmacConsumers);
+    const res = await app.inject({ method: 'GET', url: '/health' });
+    expect(res.statusCode).toBe(200);
+  });
+
+  it('/editor/:key does not require auth', async () => {
+    const app = freshApp(hmacConsumers);
+    const res = await app.inject({ method: 'GET', url: '/editor/some-key' });
+    expect(res.statusCode).toBe(404);
+  });
+
+  it('/api/documents/callback does not require consumer auth', async () => {
+    const app = freshApp(hmacConsumers);
+    const res = await app.inject({
+      method: 'POST', url: '/api/documents/callback',
+      payload: { key: 'nonexistent', status: 4 },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual({ error: 0 });
+  });
+});

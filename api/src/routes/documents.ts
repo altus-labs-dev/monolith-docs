@@ -3,6 +3,7 @@ import crypto from 'node:crypto';
 import jwt from 'jsonwebtoken';
 import { config } from '../config.js';
 import { resolveDownloadUrl, transferToGcs } from '../storage.js';
+import { validateCallbackDomain } from '../consumers.js';
 
 interface OpenRequestBody {
   fileUrl: string;
@@ -25,9 +26,64 @@ interface OpenRequestBody {
   };
 }
 
-// In-memory session store — replaced with a proper store in production
+const openSchema = {
+  body: {
+    type: 'object',
+    required: ['fileUrl', 'user'],
+    properties: {
+      fileUrl: { type: 'string', minLength: 1, maxLength: 2048 },
+      callbackUrl: { type: 'string', maxLength: 2048 },
+      fileName: { type: 'string', maxLength: 255 },
+      user: {
+        type: 'object',
+        required: ['id', 'name'],
+        properties: {
+          id: { type: 'string', minLength: 1, maxLength: 128 },
+          name: { type: 'string', minLength: 1, maxLength: 256 },
+        },
+        additionalProperties: false,
+      },
+      permissions: {
+        type: 'object',
+        properties: {
+          edit: { type: 'boolean' },
+          download: { type: 'boolean' },
+          print: { type: 'boolean' },
+        },
+        additionalProperties: false,
+      },
+      saveTo: {
+        type: 'object',
+        required: ['bucket', 'object'],
+        properties: {
+          bucket: { type: 'string', minLength: 1, maxLength: 255 },
+          object: { type: 'string', minLength: 1, maxLength: 1024 },
+        },
+        additionalProperties: false,
+      },
+    },
+    additionalProperties: false,
+  },
+} as const;
+
+const callbackSchema = {
+  body: {
+    type: 'object',
+    required: ['key', 'status'],
+    properties: {
+      key: { type: 'string' },
+      status: { type: 'number' },
+      url: { type: 'string' },
+      users: { type: 'array', items: { type: 'string' } },
+      token: { type: 'string' },
+    },
+  },
+} as const;
+
+// In-memory session store
 const sessions = new Map<string, {
   key: string;
+  consumerId?: string;
   fileUrl: string;
   resolvedFileUrl: string;
   callbackUrl?: string;
@@ -35,19 +91,44 @@ const sessions = new Map<string, {
   user: { id: string; name: string };
   permissions: { edit: boolean; download: boolean; print: boolean };
   saveTo?: { bucket: string; object: string };
-  /** Populated by OnlyOffice callback — the URL to download the edited document */
   lastSavedUrl?: string;
   createdAt: number;
+  lastActivityAt: number;
 }>();
 
 export async function documentRoutes(app: FastifyInstance): Promise<void> {
 
+  // Session cleanup — remove expired sessions
+  const cleanupInterval = setInterval(() => {
+    const now = Date.now();
+    let cleaned = 0;
+    for (const [key, session] of sessions) {
+      if (now - session.lastActivityAt > config.sessionTtlMs) {
+        sessions.delete(key);
+        cleaned++;
+      }
+    }
+    if (cleaned > 0) {
+      app.log.info({ cleaned, remaining: sessions.size }, 'Expired sessions cleaned up');
+    }
+  }, config.sessionCleanupIntervalMs);
+
+  app.addHook('onClose', () => clearInterval(cleanupInterval));
+
   // --- Document Open ---
-  app.post<{ Body: OpenRequestBody }>('/api/documents/open', async (req, reply) => {
+  app.post<{ Body: OpenRequestBody }>('/api/documents/open', { schema: openSchema }, async (req, reply) => {
     const { fileUrl, callbackUrl, fileName, user, permissions, saveTo } = req.body;
 
-    if (!fileUrl || !user?.id || !user?.name) {
-      return reply.status(400).send({ error: 'Missing required fields: fileUrl, user.id, user.name' });
+    // Validate callback domain against consumer's allowed list
+    if (callbackUrl && req.consumer) {
+      const domainError = validateCallbackDomain(
+        req.consumer,
+        callbackUrl,
+        config.nodeEnv === 'production',
+      );
+      if (domainError) {
+        return reply.status(400).send({ error: domainError });
+      }
     }
 
     const key = crypto.randomUUID();
@@ -68,8 +149,10 @@ export async function documentRoutes(app: FastifyInstance): Promise<void> {
       return reply.status(400).send({ error: `Failed to resolve file URL: ${message}` });
     }
 
+    const now = Date.now();
     sessions.set(key, {
       key,
+      consumerId: req.consumerId,
       fileUrl,
       resolvedFileUrl,
       callbackUrl,
@@ -77,8 +160,11 @@ export async function documentRoutes(app: FastifyInstance): Promise<void> {
       user,
       permissions: resolvedPermissions,
       saveTo,
-      createdAt: Date.now(),
+      createdAt: now,
+      lastActivityAt: now,
     });
+
+    app.log.info({ key, consumerId: req.consumerId, fileName: resolvedFileName, userId: user.id }, 'Document session created');
 
     const editorUrl = `${config.apiPublicUrl}/editor/${key}`;
 
@@ -105,7 +191,24 @@ export async function documentRoutes(app: FastifyInstance): Promise<void> {
   });
 
   // --- OnlyOffice Callback ---
-  app.post<{ Body: OnlyOfficeCallback }>('/api/documents/callback', async (req, reply) => {
+  app.post<{ Body: OnlyOfficeCallback }>('/api/documents/callback', { schema: callbackSchema }, async (req, reply) => {
+    // Verify OnlyOffice callback JWT when JWT is enabled with a real secret
+    const isWeakSecret = !config.onlyofficeJwtSecret || config.onlyofficeJwtSecret === 'secret';
+    const callbackToken = req.body.token;
+    if (!isWeakSecret) {
+      if (!callbackToken) {
+        app.log.warn({ url: req.url }, 'OnlyOffice callback missing JWT token');
+        return reply.status(403).send({ error: 'Missing callback token' });
+      }
+      try {
+        jwt.verify(callbackToken, config.onlyofficeJwtSecret);
+      } catch (err: unknown) {
+        const message = err instanceof Error ? err.message : 'unknown';
+        app.log.warn({ error: message }, 'OnlyOffice callback JWT verification failed');
+        return reply.status(403).send({ error: 'Invalid callback token' });
+      }
+    }
+
     const { key, status, url, users } = req.body;
     app.log.info({ key, status, url, users }, 'OnlyOffice callback received');
 
@@ -117,6 +220,8 @@ export async function documentRoutes(app: FastifyInstance): Promise<void> {
         app.log.warn({ key }, 'Callback for unknown session');
         return reply.send({ error: 0 });
       }
+
+      session.lastActivityAt = Date.now();
 
       let downloadUrl = url;
 
@@ -188,13 +293,21 @@ export async function documentRoutes(app: FastifyInstance): Promise<void> {
     return reply.send({ downloadUrl: session.lastSavedUrl, fileName: session.fileName });
   });
 
-  // --- Active Sessions (admin) ---
-  app.get('/api/sessions', async (_req, reply) => {
-    const list = Array.from(sessions.values()).map(s => ({
+  // --- Active Sessions (admin, scoped to consumer) ---
+  app.get('/api/sessions', async (req, reply) => {
+    let sessionList = Array.from(sessions.values());
+
+    // Scope to requesting consumer when identified
+    if (req.consumerId) {
+      sessionList = sessionList.filter(s => s.consumerId === req.consumerId);
+    }
+
+    const list = sessionList.map(s => ({
       key: s.key,
       fileName: s.fileName,
       user: s.user,
       createdAt: new Date(s.createdAt).toISOString(),
+      lastActivityAt: new Date(s.lastActivityAt).toISOString(),
     }));
     return reply.send({ sessions: list });
   });
@@ -207,6 +320,7 @@ interface OnlyOfficeCallback {
   status: number;
   url?: string;
   users?: string[];
+  token?: string;
 }
 
 // --- Helpers ---

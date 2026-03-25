@@ -5,6 +5,17 @@ import { writeFile, mkdir, unlink, stat } from 'node:fs/promises';
 import path from 'node:path';
 import { config } from '../config.js';
 
+const ALLOWED_EXTENSIONS = new Set([
+  // Word processing
+  '.docx', '.doc', '.odt', '.rtf', '.txt', '.html', '.htm', '.mht', '.epub', '.fb2',
+  // Spreadsheets
+  '.xlsx', '.xls', '.ods', '.csv',
+  // Presentations
+  '.pptx', '.ppt', '.odp',
+  // PDF
+  '.pdf',
+]);
+
 const MIME_TYPES: Record<string, string> = {
   '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
   '.doc': 'application/msword',
@@ -50,8 +61,17 @@ export async function fileRoutes(app: FastifyInstance): Promise<void> {
       return reply.status(400).send({ error: 'No file provided' });
     }
 
+    const ext = path.extname(file.filename).toLowerCase() || '.docx';
+
+    // Validate file type
+    if (!ALLOWED_EXTENSIONS.has(ext)) {
+      app.log.warn({ filename: file.filename, ext }, 'File upload rejected: unsupported file type');
+      return reply.status(400).send({
+        error: `File type '${ext}' is not supported. Allowed types: ${[...ALLOWED_EXTENSIONS].join(', ')}`,
+      });
+    }
+
     const id = randomUUID();
-    const ext = path.extname(file.filename) || '.docx';
     const filename = `${id}${ext}`;
     const filePath = path.join(UPLOAD_DIR, filename);
 

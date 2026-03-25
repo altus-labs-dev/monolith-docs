@@ -29,7 +29,8 @@ describe('POST /api/documents/open', () => {
     });
 
     expect(res.statusCode).toBe(400);
-    expect(res.json().error).toContain('Missing required fields');
+    // Fastify schema validation returns structured error
+    expect(res.json().message).toContain("must have required property 'user'");
   });
 });
 

@@ -1,0 +1,20 @@
+# Cloudflare Tunnel configuration for Monolith Docs
+# Routes API traffic from Cloudflare edge to the local API service.
+# The tunnel is outbound-only from GCE — no inbound firewall rule needed.
+#
+# Hostnames:
+#   connect.monolithdocs.com → Fastmail Connect billing API calls
+#   crm.monolithdocs.com     → Monolith CRM backend calls
+#
+# Replace <TUNNEL_ID> with the actual tunnel ID from `cloudflared tunnel create`.
+# Credentials file is placed by setup-tunnel.sh at /etc/cloudflared/<TUNNEL_ID>.json
+
+tunnel: <TUNNEL_ID>
+credentials-file: /etc/cloudflared/<TUNNEL_ID>.json
+
+ingress:
+  - hostname: connect.monolithdocs.com
+    service: http://localhost:3020
+  - hostname: crm.monolithdocs.com
+    service: http://localhost:3020
+  - service: http_status:404
