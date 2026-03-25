@@ -41,7 +41,6 @@ export function buildApp() {
   // Security headers
   app.addHook('onSend', async (req, reply) => {
     reply.header('X-Content-Type-Options', 'nosniff');
-    reply.header('X-Frame-Options', 'SAMEORIGIN');
     reply.header('Referrer-Policy', 'strict-origin-when-cross-origin');
     reply.header('X-XSS-Protection', '0');
 
@@ -49,11 +48,14 @@ export function buildApp() {
       reply.header('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
     }
 
-    // CSP: restrictive for API, none for editor (OnlyOffice needs inline scripts + eval)
     if (req.url.startsWith('/editor/')) {
-      // OnlyOffice editor requires inline scripts, eval, iframes — don't set CSP
+      // Editor pages are loaded in iframes by consuming apps (Fastmail Connect, CRM).
+      // Allow cross-origin framing — no X-Frame-Options or restrictive CSP.
     } else if (req.url.startsWith('/api/')) {
+      reply.header('X-Frame-Options', 'DENY');
       reply.header('Content-Security-Policy', "default-src 'none'");
+    } else {
+      reply.header('X-Frame-Options', 'SAMEORIGIN');
     }
   });
 
