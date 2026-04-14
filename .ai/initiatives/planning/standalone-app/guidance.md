@@ -1,0 +1,209 @@
+# Standalone App — Guidance
+
+## Initiative ID: `standalone-app`
+
+## Summary
+
+Transform Monolith Docs from a headless embed service into a first-class Monolith Platform product at monolithdocs.com. Authenticated users with a Docs subscription can sign in, create documents, upload from desktop, and edit in the browser — without launching from CRM or Connect.
+
+**Critical constraint:** The existing headless API must continue working exactly as-is from the point of view of CRM and Connect. They continue calling `/api/documents/open`, receiving `editorUrl`, embedding `/editor/:key`, and using the current callback/download flows. The standalone app is additive, but it does require route-level auth isolation and a first-party app API surface so the existing consumer-authenticated headless routes are not exposed or regressed.
+
+---
+
+## Architecture Decisions
+
+### 1. Backend: Keep Fastify, add tRPC + Prisma + PostgreSQL
+
+The existing Fastify API remains the host for the headless editor/session flows. New standalone surfaces are added alongside it:
+
+- **tRPC router** mounted at `/trpc` via `@trpc/server/adapters/fastify` — serves the frontend (dashboard, recent docs, user prefs, file management)
+- **Prisma + PostgreSQL** — tenant, user, org structure, recent docs, event inbox/outbox tables. RLS for tenant isolation (same pattern as CRM/Connect).
+- **Platform SDK** (`@monolith-platform/sdk`) — singleton `PlatformClient` for entitlements, events, user/org queries.
+- **Route/auth split** — consumer auth remains responsible for headless routes; Platform session auth applies only to standalone routes. This requires explicit Fastify plugin encapsulation or equivalent route namespacing. It is not safe to rely on the current global auth plugin as-is.
+
+**Rationale:** Docs is AGPL and intentionally lean. NestJS would bloat the surface. Fastify + tRPC gives the frontend the same DX as CRM/Connect without the framework weight. Adding Prisma is necessary because the standalone app needs persistent state (tenants, users, recent docs, event tracking). The explicit route/auth split preserves the current headless boundary instead of weakening it.
+
+**Headless route behavior is NOT modified.** The consumer auth system (`auth.ts`, `consumers.ts`) continues to handle the current headless API requests. However, the current global Fastify auth registration must be refactored so standalone routes (`/trpc`, `/auth/*`, and any first-party app routes) are excluded from consumer bearer-token auth and instead use Platform session auth.
+
+### 2. Frontend: Next.js 15 + `@monolith-platform/ui`
+
+- `web/` directory: Next.js 15, React 19, App Router
+- **`@monolith-platform/ui`** from Artifact Registry — the published shared component library (NOT a local copy — CRM has already migrated to this)
+- Same header (56px, app switcher, notifications, profile dropdown), color scheme (VS Code Modern, CSS variables), theme modes (light/dark/system), density settings (compact/default/comfy)
+- Lucide React icons, Radix UI primitives, CVA variants, `cn()` utility
+
+### 3. Auth: Platform SSO (NOT Firebase client SDK)
+
+Docs follows the same SSO flow as CRM and Connect:
+
+1. Unauthenticated user visits `app.monolithdocs.com`
+2. Frontend calls `https://api.monolithdocs.com/auth/me`; if no session, redirect to `login.monolithplatform.com?redirect_uri=https://api.monolithdocs.com/auth/callback`
+3. Platform login gateway handles Firebase Auth (Docs never touches Firebase directly)
+4. Platform redirects back with `?code=<auth-code>`
+5. Docs server exchanges code with Platform API (`POST /auth/exchange`) — **server-side only**
+6. Platform returns verified session: `{ userId, email, tenantId, tenantSlug, role }`
+7. Docs signs its own JWT (HS256), stores in httpOnly cookie (`docs_session`)
+8. All subsequent requests verified locally from the cookie — no round-trip to Platform
+
+**Docs does NOT:**
+- Use Firebase client SDK or Firebase Admin SDK
+- Store or reuse Platform's JWT
+- Call Platform on every request (only on initial code exchange)
+- Verify Platform JWTs locally — after the exchange, Docs trusts its own session cookie just like CRM and Connect
+
+**Auth contract references:**
+- `C:\Dev\monolith-platform\docs\ecosystem\contracts\auth-sso.md` (v1.0.0)
+- `C:\Dev\monolith-platform\docs\ecosystem\contracts\auth-adoption-standard.md` (v1.0.0)
+
+### 4. Entitlements: Platform SDK with fail-open caching
+
+- `platform.entitlements.check(platformTenantId, 'docs')` → returns plan, status, features
+- 60-second TTL cache (matches Platform's server-side cache)
+- Fail-open: if Platform is unreachable, allow access (same as CRM/Connect)
+- Cache invalidated immediately on `platform.subscription.changed` / `cancelled` events
+- Two layers: NestJS-style service for internal use + standalone function for tRPC middleware
+
+### 5. Events: Pub/Sub outbox/inbox (same pattern as CRM/Connect)
+
+**Inbound (Platform → Docs):**
+- `POST /internal/events` endpoint — receives Pub/Sub push messages
+- OIDC token verification in production
+- Event inbox table for deduplication (idempotent processing)
+- Sovereignty handler syncs: tenant, user, org structure, subscription state
+- Events to handle:
+  - `platform.tenant.*` (created, deactivated, suspended, reactivated, deleted)
+  - `platform.user.*` (invited, activated, deactivated, updated, role.changed)
+  - `platform.seat.granted`, `platform.seat.revoked`
+  - `platform.subscription.*` (created, changed, cancelled)
+  - `platform.org.*` (legal entities, business units, affiliations CRUD)
+
+**Outbound (Docs → Platform):**
+- Transactional outbox pattern: write to `event_outbox` in same transaction as mutation
+- Background publisher polls and publishes to `monolith-docs-events` Pub/Sub topic
+- Events to publish:
+  - `docs.document.created`, `docs.document.updated`, `docs.document.deleted`
+  - `docs.session.started`, `docs.session.ended`
+
+### 6. Provisioning: `/internal/provision` endpoint
+
+Platform calls this when a tenant subscribes to Docs:
+
+- **Request:** `ProvisionRequest` with tenant, owner, users, org structure, plan info
+- **Response:** `{ success: boolean, error?: string }`
+- **Must be idempotent** — same tenantId returns success without duplicates
+- **30-second timeout**
+- **Actions:** Create local tenant + users + org structure records, apply plan defaults
+- **Auth:** Service key verification (`Authorization: ServiceKey <key>`)
+
+**Contract reference:** `C:\Dev\monolith-platform\docs\ecosystem\contracts\provisioning.md` (v2.0.0)
+
+### 7. Storage: Platform storage from day one for standalone
+
+Platform storage is now available and already adopted in CRM. Standalone Docs should use it from the first standalone release:
+- Standalone uploads use `platform.storage.requestUploadUrl()` + `confirmUpload()` and store Platform file IDs, not local temp-file paths
+- Platform owns blob storage, file metadata, signed download URLs, and thumbnails
+- Standalone recent-doc / reopen flows must reference Platform file IDs so documents survive API restarts and temp-file cleanup
+- The current local temp upload storage remains only for the existing headless `/api/files/upload` path until STOR-7 covers Docs-specific headless/storage decisions
+- The GCS signed URL flow for headless consumers is unchanged
+- Docs can use Platform-provided thumbnails directly via `platform.storage.getThumbnailUrl()`; no Docs-local thumbnail pipeline is needed for standalone uploads
+
+### 8. Database schema (new)
+
+Docs currently has no database. The standalone app requires:
+
+```
+Tenant
+  id, slug, name, status, platform_tenant_id (unique), firebase_tenant_id, plan_slug
+  
+User
+  id, tenant_id, email, first_name, last_name, role, status
+  platform_user_id, platform_sync_version
+
+LegalEntity
+  id, tenant_id, platform_id, name, entity_type, ...
+
+BusinessUnit
+  id, tenant_id, platform_id, legal_entity_id, short_code, name, ...
+
+BusinessUnitAffiliation
+  id, tenant_id, user_id, business_unit_id, platform_id, role, is_primary, ...
+
+RecentDocument
+  id, tenant_id, user_id, platform_file_id, document_key, file_name, document_type, last_opened_at
+
+EventInbox
+  id, event_id (unique), event_type, tenant_id, source, status, payload, received_at, processed_at, attempts
+
+EventOutbox
+  id, event_id, event_type, tenant_id, source, payload, status, created_at, published_at, publish_attempts, last_error
+```
+
+RLS enforced via `SET LOCAL app.current_tenant = <tenant_id>` on every request (same as CRM/Connect).
+
+### 9. Guard chain (Fastify adaptation)
+
+CRM/Connect use NestJS guards. Docs adapts this to Fastify hooks:
+
+1. **`platformAuthHook`** (onRequest) — reads `docs_session` cookie, verifies JWT, sets `request.platformUserId` + `request.platformTenantId`
+2. **`tenantContextHook`** (preHandler) — resolves local tenant by `platform_tenant_id`, resolves local user by `(tenant_id, platform_user_id)`, sets `request.tenantId` + `request.userId` + `request.userRole` + `request.businessUnitId`
+
+These hooks apply only to `/trpc` and `/auth/*` routes. Existing headless routes continue using consumer auth. This requires route encapsulation so the current global `authPlugin` does not intercept standalone requests before the Platform hooks run.
+
+---
+
+## What Does NOT Change
+
+| Surface | Status |
+|---------|--------|
+| `POST /api/documents/open` | Unchanged — consumer auth |
+| `GET /editor/:key` | Unchanged — session-bound |
+| `POST /api/documents/callback` | Unchanged — OnlyOffice JWT |
+| `GET /api/files/:filename` | Unchanged — unguessable UUID |
+| `POST /api/files/upload` | Unchanged — consumer auth |
+| `GET /api/sessions` | Unchanged — consumer auth |
+| `GET /health`, `GET /api/status` | Unchanged — public |
+| Consumer auth contracts for headless routes | Unchanged |
+| Docker Compose (OnlyOffice + API) | Extended (add PostgreSQL, Redis) |
+| NGINX config | Extended (add frontend routing) |
+
+---
+
+## Dependencies
+
+| Dependency | Status | Impact |
+|-----------|--------|--------|
+| `@monolith-platform/sdk` | Published to Artifact Registry | Install as dependency |
+| `@monolith-platform/ui` | Published to Artifact Registry | Install as dependency |
+| Platform SSO (login gateway) | Live | Need callback URL registered |
+| Platform provisioning | Live | Need provision_url registered |
+| Platform Pub/Sub topics | Live | Need `monolith-docs-events` topic + subscriptions |
+| Platform service key | Needs creation | Register Docs as a product in Platform |
+| Platform storage | Live | Use for standalone uploads, downloads, and thumbnails from v1 |
+| PostgreSQL | New for Docs | Add to docker-compose |
+| Redis | New for Docs | Add to docker-compose (sessions, entitlement cache) |
+
+---
+
+## Hostname Architecture
+
+Docs now has two distinct API surfaces and should document them separately:
+
+- `app.monolithdocs.com` — standalone web app (Next.js frontend)
+- `api.monolithdocs.com` — first-party standalone API (`/auth/*`, `/trpc`, `/internal/*`)
+- `connect.monolithdocs.com` — Fastmail Connect tunnel (headless API, unchanged)
+- `crm.monolithdocs.com` — CRM tunnel (headless API, unchanged)
+
+Rules:
+- `app.monolithdocs.com` remains the public browser entry point
+- `api.monolithdocs.com` is used for Platform SSO callback, first-party app auth, tRPC, and service-to-service internal endpoints
+- The existing headless consumer API remains on `connect.` and `crm.` only
+- `app.monolithdocs.com` should continue blocking consumer `/api/*` routes; introducing standalone must not make the headless REST surface public
+
+---
+
+## AGPL Considerations
+
+- All code in this repo is AGPL 3.0 (required by OnlyOffice)
+- `@monolith-platform/sdk` and `@monolith-platform/ui` are dependencies, not embedded — AGPL allows this
+- The SSO flow calls Platform API over HTTP — no code coupling
+- Prisma + PostgreSQL are MIT/Apache licensed — compatible with AGPL

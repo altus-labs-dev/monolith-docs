@@ -1,0 +1,24 @@
+version: 1
+updated_at: "2026-04-14"
+initiatives:
+  - id: production-hardening
+    title: "Production Security And Multi-Consumer Hardening"
+    lane: active
+    status: in_progress
+    path: ".ai/initiatives/active/production-hardening"
+
+  - id: standalone-app
+    title: "Standalone Web App For Direct Subscribers"
+    lane: planning
+    status: planning
+    path: ".ai/initiatives/planning/standalone-app"
+    blockers:
+      - "Platform auth, provisioning, and storage contracts must stay aligned while the standalone surface is introduced."
+
+  - id: monolith-docs
+    title: "Monolith Docs Platform Setup And Integration"
+    lane: archive
+    status: archived
+    path: ".ai/initiatives/archive/monolith-docs"
+    blockers:
+      - "Original umbrella initiative was split; follow-on work continues in production-hardening and standalone-app."

@@ -1,0 +1,13 @@
+{
+  "commit_mode": "approval_required",
+  "doc_sync_before_commit": true,
+  "checkpoint": {
+    "default_reviewers": ["codex"],
+    "fallback_reviewer": "sonnet",
+    "frontend_extra_reviewer": "kimi"
+  },
+  "phase_close": {
+    "default_reviewers": ["codex", "sonnet"],
+    "frontend_extra_reviewer": "kimi"
+  }
+}

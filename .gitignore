@@ -36,9 +36,5 @@ data/
 coverage/
 
 # Claude / AI control plane
-CLAUDE.md
-FIRST-SESSION-PROMPT.md
-project-profile.yaml
 CREDENTIALS.md
 .claude/
-docs/

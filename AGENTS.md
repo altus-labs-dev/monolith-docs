@@ -1,84 +1,46 @@
-# Project Conventions — Monolith Docs
+# Monolith Docs — Agent Context
 
-## Product Identity
+Standalone AGPL document-editing service built around OnlyOffice DocumentServer with a thin Fastify API.
 
-- **Name:** Monolith Docs
-- **Purpose:** Open-source, self-hosted document editing platform built on OnlyOffice DocumentServer with a thin Node.js API layer.
-- **License:** AGPL 3.0 (required by OnlyOffice)
-- **Repo:** `C:\Dev\monolith-docs`
-- **Remote:** `https://github.com/altus-labs-dev/monolith-docs`
+## Stack
 
-## Ecosystem Position
+- API: Fastify + TypeScript on `3020`
+- Document engine: OnlyOffice DocumentServer `8.3` on `8080`
+- Storage: Google Cloud Storage via signed URLs
+- Infrastructure: Docker Compose locally, GCE + NGINX + Cloudflare Tunnel for hosted environments
+- Auth: consumer-issued integration credentials today, Platform SSO planned for the standalone app
+- Runtime: Node.js `22+`, npm workspaces, Vitest, ESLint
 
-Monolith Docs is part of the Monolith product suite (CRM, Connect, Docs, Platform). It runs as a standalone service. Consuming apps integrate over API — never by embedding.
+## Ecosystem
 
-- **Primary consumer:** Monolith CRM (`C:\Dev\monolith-crm`)
-- **Planned consumer:** Fastmail Connect (`C:\Dev\monolith-connect`)
-- **Central auth/billing hub (future):** Monolith Platform (`C:\Dev\monolith-platform`)
-- **Ecosystem coordination:** `C:\Dev\monolith-platform\docs\ecosystem\`
+- Parent ecosystem hub: Monolith Platform (`C:\Dev\monolith-platform`)
+- Primary consumer: Monolith CRM (`C:\Dev\monolith-crm`)
+- Durable ecosystem contracts and integration docs live in `C:\Dev\monolith-platform\docs\ecosystem\`
 
-## Architecture
+## Architecture Patterns
 
-| Layer | Technology |
-|-------|-----------|
-| Document Engine | OnlyOffice DocumentServer 8.3 (Docker) |
-| API | Node.js + Fastify + TypeScript |
-| Storage | Google Cloud Storage via signed URLs |
-| Auth | Consumer-issued JWT/HMAC tokens, hostname-bound |
-| Infrastructure | GCE VM + Docker Compose + Cloudflare Tunnel |
-| Local Dev | `docker-compose.yml` (OnlyOffice + API) |
+- Keep Monolith Docs as a separate service; consumer apps integrate over API
+- OnlyOffice is stateful and should be treated as a GCE-hosted service in production
+- Signed URL round-trips are the core file model; avoid durable file storage by default
+- Consumer auth, hostname binding, callback security, and session TTL behavior are core security boundaries
+- Headless integrations and the future standalone app are different surfaces; do not blur them
 
-### Key Architecture Decisions
+## Roadmap And Initiative State
 
-- OnlyOffice is stateful (internal PostgreSQL, Redis, RabbitMQ) — runs on GCE, not Cloud Run
-- Three-hostname architecture: `app.monolithdocs.com` (public editor), `connect.monolithdocs.com` (Fastmail tunnel), `crm.monolithdocs.com` (CRM tunnel)
-- AGPL boundary: all code in this repo is open source; proprietary integration logic lives in consumer repos
-- Multi-consumer model: each consumer identified by hostname + auth credentials
-- Files are never stored permanently — signed URL round-trips only
+- High-level feature and delivery status: `ROADMAP.md`
+- Initiative registry: `.ai/registry.yml`
+- Initiative docs: `.ai/initiatives/<lane>/<initiative-id>/`
+- Optional atomic backlog: `.ai/backlog.yml`
+- IDDP policy: `.ai/iddp/config.json`
+- No repo-level current file or session ledger is part of the active workflow
+- Commits require explicit user approval, and doc sync is required before commits and phase close-outs
 
-## Stack Patterns
+## Key Rules
 
-- **Package manager:** npm (workspace root + `api/` workspace)
-- **Languages:** TypeScript, Shell, Markdown
-- **Testing:** Vitest
-- **Linting:** ESLint (flat config)
-- **Build:** TypeScript compiler (`tsc`)
-
-## Validation Commands
-
-```bash
-npm --prefix api run typecheck    # Type checking
-npm --prefix api run lint         # Linting
-npm --prefix api test             # Unit tests (Vitest)
-docker compose config             # Docker Compose validation
-bash -n <script>                  # Shell script syntax check
-```
-
-## GCP Infrastructure
-
-| Resource | Dev | Prod |
-|----------|-----|------|
-| Project | `monolith-dev-489423` | `monolith-crm` |
-| VM | `monolith-docs-dev` | `monolith-docs-prod` |
-| VM type | e2-medium | e2-standard-2 |
-| Region | us-central1 | us-central1 |
-
-## Integration Contract
-
-```text
-Consumer → Monolith Docs:
-  POST /api/open    { fileUrl, callbackUrl, token, user }
-  → Returns: { editorUrl }
-
-Monolith Docs → Consumer (callback on save):
-  POST {callbackUrl}   { status, downloadUrl }
-```
-
-## Conventions
-
-- No business logic in this repo — business rules live in consumer apps
-- Stateless API — all state lives in OnlyOffice internals
-- No `any` type — use `unknown` and narrow
-- No `console.log` — use structured logging
-- Update docs in the same session as code/infrastructure changes
+- No `any`
+- No `console.log`
+- No direct `process.env` outside config helpers
+- No proprietary business logic in this repo
 - Shared-surface changes are contract-first
+- Build prerequisites before dependent features
+- Read `CLAUDE.md` for the full engineering conventions
