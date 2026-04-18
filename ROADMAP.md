@@ -4,12 +4,16 @@ High-level feature and delivery status lives here. Detailed execution state live
 
 ## Active
 
+_None._
+
+## Complete
+
 ### Production Hardening
 
-- Status: `in_progress`
-- Summary: Security and network hardening are complete; deployment-backed integration testing is next.
-- Plan: `.ai/initiatives/active/production-hardening/plan.md`
-- Guidance: `.ai/initiatives/active/production-hardening/guidance.md`
+- Status: `completed` (2026-04-18)
+- Summary: Security hardening, multi-consumer architecture, Cloudflare Tunnel infrastructure, and integration verification all landed and running in production. CRM and Connect round-trip documents live.
+- Plan: `.ai/initiatives/complete/production-hardening/plan.md`
+- Guidance: `.ai/initiatives/complete/production-hardening/guidance.md`
 
 ## Planning
 

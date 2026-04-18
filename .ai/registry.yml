@@ -1,11 +1,12 @@
 version: 1
-updated_at: "2026-04-14"
+updated_at: "2026-04-18"
 initiatives:
   - id: production-hardening
     title: "Production Security And Multi-Consumer Hardening"
-    lane: active
-    status: in_progress
-    path: ".ai/initiatives/active/production-hardening"
+    lane: complete
+    status: completed
+    path: ".ai/initiatives/complete/production-hardening"
+    completed_at: "2026-04-18"
 
   - id: standalone-app
     title: "Standalone Web App For Direct Subscribers"
@@ -14,6 +15,8 @@ initiatives:
     path: ".ai/initiatives/planning/standalone-app"
     blockers:
       - "Platform auth, provisioning, and storage contracts must stay aligned while the standalone surface is introduced."
+      - "Phase 0 monorepo restructure (npm → pnpm + Turbo, api/ → apps/api/, add apps/web + packages/db) is a hard prerequisite before any subsequent phase can land."
+      - "SA-2.0 auth-sso.md logout contract extension must land in the Platform ecosystem before SA-2.2 implementation."
 
   - id: monolith-docs
     title: "Monolith Docs Platform Setup And Integration"

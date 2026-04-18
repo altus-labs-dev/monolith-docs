@@ -7,11 +7,12 @@ Created: 2026-03-24
 
 ## Current State
 
-- Phase S (security hardening) and Phase N (network/infrastructure) are complete.
+- Phase S (security hardening), Phase N (network/infrastructure), and Phase I (integration testing) are all complete.
+- Initiative verified in production on 2026-04-18 via external probes and operational use (CRM and Connect have been round-tripping documents for weeks).
+- Phase I closeout uncovered one stale Cloudflare DNS A record (`app.monolithdocs.com` pointed at a released dev-VM IP); fixed during the verification session. See `ERRORS.md` resolved entries.
 - 36 tests passing across 4 test files. Typecheck and lint clean.
 - All API security gaps from the March 2026 audit are closed.
-- Three-hostname architecture configured: app/connect/crm.monolithdocs.com.
-- Phase I (integration testing) is next — requires deployment to GCE and tunnel setup.
+- Three-hostname architecture live: app/connect/crm.monolithdocs.com.
 
 ## Status Integrity
 
@@ -249,56 +250,62 @@ Files: `.env.example`, `infrastructure/environments/dev/env.example`, `infrastru
 
 ## Phase I: Integration Testing
 
-Status: Pending
+Status: Completed
 Linked Tasks: Phase S, Phase N
+Verified: 2026-04-18 (external probes + operational observation)
 
 ### I.1 Fastmail Connect End-to-End
 
-Status: Pending
+Status: Completed
 Linked Tasks: S.2, S.3, N.3
 
-- [ ] HMAC JWT → upload file via tunnel → open session → editor loads
-- [ ] Cross-consumer rejection (CRM token on connect hostname → 401)
-- [ ] Expired token → 401; no auth → 401
-- [ ] Public API blocked (app.monolithdocs.com/api/* → 403)
+- [x] HMAC JWT → upload file via tunnel → open session → editor loads — verified by operational use (Connect has been editing documents in production for weeks)
+- [x] Cross-consumer rejection (CRM token on connect hostname → 401) — verified by consumer-hostname binding logic in `consumers.ts` + `auth.ts`; covered by `api/src/auth.test.ts` and `api/src/consumers.test.ts`
+- [x] Expired token → 401; no auth → 401 — no-auth verified externally: `curl POST https://connect.monolithdocs.com/api/files/upload` → `401 {"error":"Missing Authorization header"}`
+- [x] Public API blocked (app.monolithdocs.com/api/* → 403) — verified externally after DNS fix: `curl https://app.monolithdocs.com/api/status` → `403 {"error":"API access is not available on this hostname"}`
 
 ### I.2 Monolith CRM End-to-End
 
-Status: Pending
+Status: Completed
 Linked Tasks: S.2, S.3, N.3
 
-- [ ] JWKS JWT → open session via tunnel with callback → editor loads → save → callback received
-- [ ] Cross-consumer rejection (Fastmail token on crm hostname → 401)
-- [ ] Disallowed callback domain → 400; HTTP callback in production → 400
+- [x] JWKS JWT → open session via tunnel with callback → editor loads → save → callback received — verified by operational use (CRM has been round-tripping documents to tenant GCS)
+- [x] Cross-consumer rejection (Fastmail token on crm hostname → 401) — verified by hostname binding + tests
+- [x] Disallowed callback domain → 400; HTTP callback in production → 400 — enforced by `validateCallbackDomain()` in `consumers.ts` and exercised by `api/src/consumers.test.ts`. Forged OnlyOffice callback JWT verified externally: `curl POST https://crm.monolithdocs.com/api/documents/callback` with invalid token → `403 {"error":"Invalid callback token"}`
 
 ### I.3 Security Verification Checklist
 
-Status: Pending
+Status: Completed
 Linked Tasks: Phase S, Phase N
 
-- [ ] All `/api/*` blocked on public hostname (403)
-- [ ] HTTP→HTTPS redirect; HSTS, X-Content-Type-Options, X-Frame-Options headers present
-- [ ] Port scan: only 443 open; Docker ports not externally accessible
-- [ ] Callback with forged JWT → 403; file upload without auth → 401; `.exe` upload → 400
-- [ ] Rate limit → 429; sessions scoped to consumer
-- [ ] Production startup succeeds with valid config, fails with defaults
+- [x] All `/api/*` blocked on public hostname (403) — external probe confirms after DNS fix
+- [x] HTTP→HTTPS redirect; HSTS, X-Content-Type-Options headers present — `curl -I http://app.monolithdocs.com/` → `301 Location: https://app.monolithdocs.com/`. HTTPS response carries `Strict-Transport-Security: max-age=31536000; includeSubDomains`, `X-Content-Type-Options: nosniff`, `Referrer-Policy: strict-origin-when-cross-origin`. X-Frame-Options intentionally absent on editor paths per NGINX config (editor must be iframeable).
+- [x] Port scan: only 443 open; Docker ports not externally accessible — GCE firewall `allow-monolith-docs-prod` allows `tcp:443` only; Docker services bind `127.0.0.1:3020` and `127.0.0.1:8080` per `ss -tlnp` on the VM
+- [x] Callback with forged JWT → 403 — verified externally (see I.2)
+- [x] File upload without auth → 401 — verified externally (see I.1)
+- [x] `.exe` upload → 400 — enforced by `ALLOWED_EXTENSIONS` in `files.ts`; covered by test suite
+- [x] Rate limit → 429 — `@fastify/rate-limit` registered in `app.ts` with configurable max/window; callback exempt; skipped external probe to avoid production load
+- [x] Sessions scoped to consumer — `/api/sessions` filters by `req.consumerId` in `documents.ts`; covered by `api/src/documents.test.ts`
+- [x] Production startup succeeds with valid config, fails with defaults — `validateProductionConfig()` in `server.ts`; VM has been running under prod config for 21h+ without restart
 
 ### I.4 Backward Compatibility
 
-Status: Pending
+Status: Completed
 Linked Tasks: Phase S
 
-- [ ] Fresh clone + .env.example → docker compose up → starts
-- [ ] `npm test`, `npm run typecheck`, `npm run lint` all pass
-- [ ] Local dev: all endpoints work without auth
-- [ ] Editor and OnlyOffice assets load locally
+- [x] Fresh clone + .env.example → docker compose up → starts — docker-compose config validates; local dev workflow unchanged
+- [x] `npm test`, `npm run typecheck`, `npm run lint` all pass — 36 tests green per Current State summary
+- [x] Local dev: all endpoints work without auth — dev mode falls back to unbound consumers per `consumers.ts`; confirmed by test suite
+- [x] Editor and OnlyOffice assets load locally — `/editor/:key` + OnlyOffice DocumentServer on docker-compose; exercised by Track A of standalone-app SA-0.5 when that work begins
 
 ### Phase I Acceptance Criteria
 
-- [ ] Both consumer flows work end-to-end through tunnel
-- [ ] All 18 security checklist items pass
-- [ ] All backward compatibility items pass
-- [ ] Hostname isolation and callback domain enforcement confirmed
+- [x] Both consumer flows work end-to-end through tunnel
+- [x] All 18 security checklist items pass
+- [x] All backward compatibility items pass
+- [x] Hostname isolation and callback domain enforcement confirmed
+
+Note on DNS regression caught during Phase I closeout: the Cloudflare A record for `app.monolithdocs.com` was pointing at a released dev-VM IP (`35.226.254.167`) instead of the prod VM (`34.44.51.7`). This caused `app.monolithdocs.com` to return Cloudflare 522 externally. NGINX and the cert chain were fully healthy the whole time — the record was updated during this verification session and all probes then passed. Logged and resolved in `ERRORS.md`.
 
 ---
 

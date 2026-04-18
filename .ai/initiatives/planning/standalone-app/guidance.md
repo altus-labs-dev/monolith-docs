@@ -4,7 +4,7 @@
 
 ## Summary
 
-Transform Monolith Docs from a headless embed service into a first-class Monolith Platform product at monolithdocs.com. Authenticated users with a Docs subscription can sign in, create documents, upload from desktop, and edit in the browser — without launching from CRM or Connect.
+Transform Monolith Docs from a headless embed service into a first-class Monolith Platform product at `docs.monolith.cx`. Authenticated users with a Docs subscription can sign in, create documents, upload from desktop, and edit in the browser — without launching from CRM or Connect. The existing headless consumer infrastructure continues to run on `monolithdocs.com` as a private inter-service domain for CRM, Connect, and fastmail-connect integrations.
 
 **Critical constraint:** The existing headless API must continue working exactly as-is from the point of view of CRM and Connect. They continue calling `/api/documents/open`, receiving `editorUrl`, embedding `/editor/:key`, and using the current callback/download flows. The standalone app is additive, but it does require route-level auth isolation and a first-party app API surface so the existing consumer-authenticated headless routes are not exposed or regressed.
 
@@ -25,31 +25,57 @@ The existing Fastify API remains the host for the headless editor/session flows.
 
 **Headless route behavior is NOT modified.** The consumer auth system (`auth.ts`, `consumers.ts`) continues to handle the current headless API requests. However, the current global Fastify auth registration must be refactored so standalone routes (`/trpc`, `/auth/*`, and any first-party app routes) are excluded from consumer bearer-token auth and instead use Platform session auth.
 
-### 2. Frontend: Next.js 15 + `@monolith-platform/ui`
+### 2. Frontend: Next.js 15 + `@monolith-platform/ui`, in `apps/web/`
 
-- `web/` directory: Next.js 15, React 19, App Router
-- **`@monolith-platform/ui`** from Artifact Registry — the published shared component library (NOT a local copy — CRM has already migrated to this)
-- Same header (56px, app switcher, notifications, profile dropdown), color scheme (VS Code Modern, CSS variables), theme modes (light/dark/system), density settings (compact/default/comfy)
+Frontend target matches `monolith-platform/apps/portal` so shared tooling, auth patterns, and UI primitives transfer directly.
+
+- Located at `apps/web/` as `@monolith-docs/web` in the pnpm workspace (Phase 0 establishes the layout).
+- Next.js 15, React 19, App Router, TypeScript 6.0.3
+- `@monolith-platform/ui` from Artifact Registry — shared component library (not a local copy; CRM and Platform portal already consume it the same way)
+- tRPC 11 + `@tanstack/react-query` + `superjson` for data fetching — same versions as `apps/portal`
+- Tailwind 4 with `@tailwindcss/postcss`; VS Code Modern theme via CSS variables from `@monolith-platform/ui`
 - Lucide React icons, Radix UI primitives, CVA variants, `cn()` utility
+- Same header (56px, app switcher, notifications, profile dropdown), color scheme, theme modes (light/dark/system), density settings (compact/default/comfy)
+- No Next.js proxy for `/trpc` or `/auth/*` — direct calls to `api.docs.monolith.cx` (first-party cookies; see Hostname Architecture)
+- Playwright for E2E
+
+### 2a. Monorepo convention (Phase 0)
+
+The entire repo is reshaped in Phase 0 to match the sibling Monolith repos. This is a hard prerequisite, not a cleanup task.
+
+- **Package manager:** pnpm 10+, `pnpm-workspace.yaml` with `apps/*` and `packages/*`
+- **Build orchestrator:** Turbo 2.x, `turbo.json` mirroring Platform/CRM task graph
+- **Layout:** `apps/api` (existing Fastify service, moved from root `api/`), `apps/web` (new Next.js frontend), `packages/db` (new Prisma workspace)
+- **Node:** `>=24` (up from `>=22`)
+- **TypeScript:** `6.0.3`
+- **Prisma:** `^7.7.0` for both `prisma` and `@prisma/client` — matches the in-progress Prisma 7.7 migration in `monolith-platform/packages/db` and `monolith-crm/packages/db`. Docs lands on 7.7 from day one, avoiding a later migration debt.
 
 ### 3. Auth: Platform SSO (NOT Firebase client SDK)
 
 Docs follows the same SSO flow as CRM and Connect:
 
-1. Unauthenticated user visits `app.monolithdocs.com`
-2. Frontend calls `https://api.monolithdocs.com/auth/me`; if no session, redirect to `login.monolithplatform.com?redirect_uri=https://api.monolithdocs.com/auth/callback`
+1. Unauthenticated user visits `docs.monolith.cx`
+2. Frontend calls `https://api.docs.monolith.cx/auth/me` (with `credentials: 'include'`); if no session, redirect to the Platform login gateway URL (value taken from `auth-sso.md`; `login.monolithplatform.com` in contract v1.0.0, subject to UNIFY DNS changes) with `redirect_uri=https://api.docs.monolith.cx/auth/callback`
 3. Platform login gateway handles Firebase Auth (Docs never touches Firebase directly)
 4. Platform redirects back with `?code=<auth-code>`
 5. Docs server exchanges code with Platform API (`POST /auth/exchange`) — **server-side only**
 6. Platform returns verified session: `{ userId, email, tenantId, tenantSlug, role }`
-7. Docs signs its own JWT (HS256), stores in httpOnly cookie (`docs_session`)
-8. All subsequent requests verified locally from the cookie — no round-trip to Platform
+7. Docs signs its own JWT (HS256), stores in httpOnly cookie (`docs_session`) scoped to `api.docs.monolith.cx` with `SameSite=Lax`
+8. All subsequent requests verified locally from the cookie — no round-trip to Platform. Because `docs.monolith.cx` and `api.docs.monolith.cx` are same-site under the `monolith.cx` registrable domain, the cookie is first-party and not subject to Safari ITP or third-party cookie restrictions.
 
 **Docs does NOT:**
 - Use Firebase client SDK or Firebase Admin SDK
 - Store or reuse Platform's JWT
 - Call Platform on every request (only on initial code exchange)
 - Verify Platform JWTs locally — after the exchange, Docs trusts its own session cookie just like CRM and Connect
+
+**Logout is global, not local-only.** `POST /auth/logout` clears the Docs session cookie, revokes active standalone editor sessions for the logging-out user, and returns a `logoutUrl` pointing at Platform's logout gateway. The frontend navigates the browser to that URL so the Platform gateway session is cleared too, and the user lands on a dedicated `/signed-out` page. This avoids the silent re-auth trap that would occur if Docs only cleared its own cookie and redirected the user back through Platform login while the gateway session was still alive.
+
+**The canonical logout URL comes from `auth-sso.md`, not from this guidance.** The current [auth-sso.md](C:/Dev/monolith-platform/docs/ecosystem/contracts/auth-sso.md) does not yet document a logout endpoint — extending it is plan step SA-2.0 and is a hard prerequisite for SA-2.2. Do not wire Docs to a speculative logout hostname. `PLATFORM_LOGOUT_URL` in Docs config reads from whatever the updated contract specifies, nothing else.
+
+CRM's current logout is local-only — it clears the CRM cookie and redirects to `platformSdk.loginUrl` without calling Platform logout. That is a latent issue in CRM but is explicitly out of scope for this initiative; Docs sets the better pattern that CRM can adopt later.
+
+**CSRF defense-in-depth:** `SameSite=Lax` is not sufficient on its own because any subdomain under `*.monolith.cx` is same-site. Every cookie-authenticated state-changing standalone route enforces an `Origin` header check matching the Docs frontend origin. This rule applies uniformly to `POST /auth/logout` and every `POST /trpc/*` mutation (see plan SA-4.1 CSRF section) — it is not deferred or opt-in.
 
 **Auth contract references:**
 - `C:\Dev\monolith-platform\docs\ecosystem\contracts\auth-sso.md` (v1.0.0)
@@ -186,18 +212,36 @@ These hooks apply only to `/trpc` and `/auth/*` routes. Existing headless routes
 
 ## Hostname Architecture
 
-Docs now has two distinct API surfaces and should document them separately:
+Docs has two hostname families reflecting two architecturally distinct use cases. The split is a deliberate outcome of the monolith.cx ecosystem unification work: the first-party standalone product joins the rest of the Monolith apps on `monolith.cx`, while the headless consumer infrastructure stays on the existing internal service domain.
 
-- `app.monolithdocs.com` — standalone web app (Next.js frontend)
-- `api.monolithdocs.com` — first-party standalone API (`/auth/*`, `/trpc`, `/internal/*`)
-- `connect.monolithdocs.com` — Fastmail Connect tunnel (headless API, unchanged)
-- `crm.monolithdocs.com` — CRM tunnel (headless API, unchanged)
+### First-party standalone product (customer-facing, on `monolith.cx`)
 
-Rules:
-- `app.monolithdocs.com` remains the public browser entry point
-- `api.monolithdocs.com` is used for Platform SSO callback, first-party app auth, tRPC, and service-to-service internal endpoints
-- The existing headless consumer API remains on `connect.` and `crm.` only
-- `app.monolithdocs.com` should continue blocking consumer `/api/*` routes; introducing standalone must not make the headless REST surface public
+- `docs.monolith.cx` — Next.js frontend. Public browser entry point.
+- `api.docs.monolith.cx` — Fastify API. Serves `/auth/*`, `/trpc`, `/internal/*`, `/editor/*` for standalone sessions, plus `/health` and `/api/status`.
+
+### Headless consumer infrastructure (internal, on `monolithdocs.com`)
+
+- `connect.monolithdocs.com` — Fastmail Connect tunnel. Headless consumer API, unchanged.
+- `crm.monolithdocs.com` — CRM tunnel. Headless consumer API, unchanged.
+
+### Rules
+
+- `docs.monolith.cx` and `api.docs.monolith.cx` are the first-party customer surface. Session cookies are first-party because both live under the `monolith.cx` registrable domain — avoids Safari ITP and third-party cookie restrictions that would break cross-site cookie auth on `api.monolithdocs.com`.
+- `connect.monolithdocs.com` and `crm.monolithdocs.com` are private inter-service hostnames. Not marketed, not linked from `monolith.cx`, treated as internal infrastructure.
+- Consumer-authenticated routes (`/api/documents/open`, `/api/files/upload`, `/api/sessions`) are reachable ONLY on `connect.` and `crm.monolithdocs.com`.
+- Standalone routes (`/auth/*`, `/trpc`, `/internal/*`) are reachable ONLY on `api.docs.monolith.cx`.
+- `/api/documents/callback` is **internal-only** via `API_INTERNAL_URL` (default `http://api:3020`). It is NOT reachable on any public hostname — NGINX on every public edge returns 404 for this path. DocumentServer reaches it over the docker-internal network; the browser never does. See plan.md SA-6.2 for the full rule and the SA-1.5 `hostnameGuard` wiring (defense in depth). Do not treat this as a public-edge carve-out; earlier drafts of this guidance did, and that was wrong.
+- `/api/files/:filename` download (session-bound UUID, no consumer auth) is reachable on editor-session hostnames (`connect.`, `crm.`, `api.docs.monolith.cx`) because OnlyOffice DocumentServer needs to GET the document during editor bootstrap. The session-key UUID is the auth boundary for this path.
+- `/editor/:key` is reachable on whichever hostname created the session. Standalone editors are served from `api.docs.monolith.cx` and framed by `docs.monolith.cx`.
+- Headless hostnames stay frozen. Consumer auth + hostname binding logic in `auth.ts`/`consumers.ts` is not migrated or unified with standalone auth — that is an explicit non-goal.
+- No unified API gateway. Fastify is one process; hostname routing is enforced at NGINX with route allowlists per hostname.
+
+### Rationale for the split
+
+1. **No public contract on headless.** Only CRM, Connect, and fastmail-connect call the headless API. Not Zapier, not partners. Migrating headless hostnames would be pure cost with zero user-facing upside.
+2. **Cookie first-party-ness.** First-party standalone auth requires frontend and API under the same registrable domain. Cross-site cookie auth from `docs.monolith.cx` to `api.monolithdocs.com` would require `SameSite=None` and would be squeezed by Safari ITP and the ongoing Chrome third-party cookie deprecation.
+3. **AGPL hygiene.** OnlyOffice-backed AGPL-exposed surfaces stay on `monolithdocs.com`; the closed-source Monolith product surface lives on `monolith.cx`. Cleaner architectural and legal boundary.
+4. **Consumer hostname stability.** The per-consumer tunnel pattern (`connect.` and `crm.`) keeps working with zero cutover risk for CRM and Connect.
 
 ---
 
