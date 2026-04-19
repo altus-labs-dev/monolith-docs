@@ -28,13 +28,16 @@ Thumbs.db
 # Logs
 *.log
 npm-debug.log*
+pnpm-debug.log*
 
 # Docker volumes
 data/
 
 # Coverage
 coverage/
+.turbo/
 
 # Claude / AI control plane
 CREDENTIALS.md
 .claude/
+.playwright-mcp/

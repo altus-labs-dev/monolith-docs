@@ -4,17 +4,18 @@ Open-source document editing service built on [OnlyOffice DocumentServer](https:
 
 ## Quick Start
 
-**Prerequisites:** Docker, Docker Compose, Node.js 22+
+**Prerequisites:** Docker, Docker Compose, Node.js 24+, pnpm 10+
 
 ```bash
 git clone https://github.com/altus-labs-dev/monolith-docs.git
 cd monolith-docs
+corepack enable
 cp .env.example .env
 docker compose up -d
 
 # or develop the API locally
-npm install
-npm run dev
+pnpm install
+pnpm run dev
 ```
 
 Once running:
@@ -27,13 +28,17 @@ Once running:
 
 ```text
 monolith-docs/
-├── api/                  Thin Node.js + Fastify API layer
-│   └── src/
-│       ├── routes/       Health, document, upload, and callback endpoints
-│       ├── auth.ts       Consumer auth and hostname enforcement
-│       ├── consumers.ts  Consumer config resolution
-│       ├── storage.ts    Signed URL and GCS integration
-│       └── server.ts     Entry point
+├── apps/
+│   ├── api/              Thin Node.js + Fastify API layer
+│   │   └── src/
+│   │       ├── routes/   Health, document, upload, and callback endpoints
+│   │       ├── auth.ts   Consumer auth and hostname enforcement
+│   │       ├── consumers.ts consumer config resolution
+│   │       ├── storage.ts signed URL and GCS integration
+│   │       └── server.ts Entry point
+│   └── web/              Placeholder for the standalone frontend workspace
+├── packages/
+│   └── db/               Prisma workspace scaffold
 ├── infrastructure/       GCP deployment scripts and hosted env config
 ├── docs/                 Technical and architectural docs
 └── .ai/                  Initiative tracking and review workflow
@@ -58,12 +63,13 @@ Monolith Docs → POST {callbackUrl} → Consumer stores updated file
 ## Development
 
 ```bash
-npm install
-npm run dev
-npm run build
-npm run typecheck
-npm run lint
-npm test
+corepack enable
+pnpm install
+pnpm run dev
+pnpm run build
+pnpm run typecheck
+pnpm run lint
+pnpm run test
 docker compose config
 ```
 
@@ -87,6 +93,7 @@ Use the lightweight `.ai` control plane with these skills:
 - `/initiative review` — manually trigger a review without committing
 - `/initiative phase-close` — run a multi-reviewer phase closeout, doc sync, then ask whether to commit
 - `/initiative doc-sync` — reconcile `plan.md`, `.ai/registry.yml`, and `ROADMAP.md` without implying review passed
+- `/initiative handoff` — generate or refresh `.ai/handoffs/<initiative-id>.md` for the next fresh session
 - `/tests audit|design|run|coverage` — inspect and run the verification stack
 - `/kimi-coworker` — optional extra reviewer or implementer for frontend-heavy work
 

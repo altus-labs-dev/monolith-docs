@@ -1,0 +1,12 @@
+.git
+.ai
+.turbo
+node_modules
+**/node_modules
+dist
+**/dist
+docs
+infrastructure
+scripts
+apps/web
+*.log

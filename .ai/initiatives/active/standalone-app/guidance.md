@@ -25,12 +25,12 @@ The existing Fastify API remains the host for the headless editor/session flows.
 
 **Headless route behavior is NOT modified.** The consumer auth system (`auth.ts`, `consumers.ts`) continues to handle the current headless API requests. However, the current global Fastify auth registration must be refactored so standalone routes (`/trpc`, `/auth/*`, and any first-party app routes) are excluded from consumer bearer-token auth and instead use Platform session auth.
 
-### 2. Frontend: Next.js 15 + `@monolith-platform/ui`, in `apps/web/`
+### 2. Frontend: Current STACK-aligned Next.js + `@monolith-platform/ui`, in `apps/web/`
 
 Frontend target matches `monolith-platform/apps/portal` so shared tooling, auth patterns, and UI primitives transfer directly.
 
 - Located at `apps/web/` as `@monolith-docs/web` in the pnpm workspace (Phase 0 establishes the layout).
-- Next.js 15, React 19, App Router, TypeScript 6.0.3
+- Next.js 16.x, React 19.x, App Router, TypeScript 6.0.3
 - `@monolith-platform/ui` from Artifact Registry — shared component library (not a local copy; CRM and Platform portal already consume it the same way)
 - tRPC 11 + `@tanstack/react-query` + `superjson` for data fetching — same versions as `apps/portal`
 - Tailwind 4 with `@tailwindcss/postcss`; VS Code Modern theme via CSS variables from `@monolith-platform/ui`
@@ -44,11 +44,12 @@ Frontend target matches `monolith-platform/apps/portal` so shared tooling, auth 
 The entire repo is reshaped in Phase 0 to match the sibling Monolith repos. This is a hard prerequisite, not a cleanup task.
 
 - **Package manager:** pnpm 10+, `pnpm-workspace.yaml` with `apps/*` and `packages/*`
-- **Build orchestrator:** Turbo 2.x, `turbo.json` mirroring Platform/CRM task graph
+- **Build orchestrator:** Turbo 2.5+, `turbo.json` mirroring Platform/CRM task graph
 - **Layout:** `apps/api` (existing Fastify service, moved from root `api/`), `apps/web` (new Next.js frontend), `packages/db` (new Prisma workspace)
 - **Node:** `>=24` (up from `>=22`)
 - **TypeScript:** `6.0.3`
 - **Prisma:** `^7.7.0` for both `prisma` and `@prisma/client` — matches the in-progress Prisma 7.7 migration in `monolith-platform/packages/db` and `monolith-crm/packages/db`. Docs lands on 7.7 from day one, avoiding a later migration debt.
+- **Version policy:** Newly introduced Docs packages should start on the current ecosystem-approved stack baseline from `monolith-platform`'s `stack-upgrade` initiative at implementation time. Do not intentionally scaffold new Docs surfaces on superseded majors just because an older draft mentioned them. If Docs needs to diverge, record the reason in this initiative first.
 
 ### 3. Auth: Platform SSO (NOT Firebase client SDK)
 

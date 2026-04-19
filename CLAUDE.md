@@ -29,7 +29,7 @@ Rules:
 - Storage: Google Cloud Storage via signed URLs
 - Infrastructure: Docker Compose locally, GCE + NGINX + Cloudflare Tunnel for hosted environments
 - Auth: consumer-issued integration credentials today, Platform SSO planned for the standalone app surface
-- Runtime: Node.js `22+`, npm workspaces, TypeScript `5.8`
+- Runtime: Node.js `24+`, pnpm workspaces, Turbo, TypeScript `6.0.3`
 - Validation: Vitest, ESLint, TypeScript compiler, Docker Compose checks
 
 ## Architecture
@@ -37,12 +37,17 @@ Rules:
 High-level shape:
 
 ```text
-api/
-  src/
-    routes/      health, document, upload, and callback routes
-    auth.ts      consumer auth and request identity enforcement
-    consumers.ts consumer config and hostname binding
-    storage.ts   signed URL and GCS integration
+apps/
+  api/
+    src/
+      routes/      health, document, upload, and callback routes
+      auth.ts      consumer auth and request identity enforcement
+      consumers.ts consumer config and hostname binding
+      storage.ts   signed URL and GCS integration
+  web/            standalone frontend workspace (scaffolded in Phase 0)
+
+packages/
+  db/             Prisma workspace and schema
 
 infrastructure/
   deploy/        hosted environment scripts and config
@@ -104,7 +109,7 @@ Core patterns:
 ## Verification
 
 - Run the strongest relevant checks for each touched surface.
-- Use `npm --prefix api run typecheck`, `npm --prefix api run lint`, `npm --prefix api test`, and `docker compose config` where appropriate.
+- Use `pnpm --filter @monolith-docs/api run typecheck`, `pnpm --filter @monolith-docs/api run lint`, `pnpm --filter @monolith-docs/api run test`, and `docker compose config` where appropriate.
 - Do not claim OnlyOffice, GCS, callback, or hosted integration flows are verified if you did not actually exercise them.
 - Treat weak verification as `code-complete`, not `complete`.
 
@@ -117,7 +122,9 @@ Non-trivial work should be tracked in initiative docs under `.ai/initiatives/`.
 - `.ai/initiatives/{active|planning|complete|archive}/{id}/guidance.md` owns durable initiative-specific decisions.
 - `.ai/initiatives/{active|planning|complete|archive}/{id}/plan.md` owns execution status and acceptance criteria.
 - `.ai/backlog.yml` is optional and should only be used if atomic task tracking adds value beyond initiative plans.
-- There is no repo-level current file, session ledger, or handoff file in the active workflow.
+- There is no repo-level current file, session ledger, or repo-global handoff file in the active workflow.
+- Initiative handoffs live in `.ai/handoffs/<initiative-id>.md`. Read one only when resuming that initiative and a handoff is present.
+- `/initiative checkpoint` and `/initiative phase-close` refresh the initiative handoff after doc sync. `/initiative handoff` can be run manually at any time.
 - Infer current work from the user request, `ROADMAP.md`, `.ai/registry.yml`, and the relevant initiative docs.
 - Manual reviews are allowed at any time.
 - Stop coding at checkpoint boundaries and run the checkpoint review before continuing.

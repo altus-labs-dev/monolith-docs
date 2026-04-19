@@ -1,5 +1,5 @@
 version: 1
-updated_at: "2026-04-18"
+updated_at: "2026-04-19"
 initiatives:
   - id: production-hardening
     title: "Production Security And Multi-Consumer Hardening"
@@ -10,13 +10,25 @@ initiatives:
 
   - id: standalone-app
     title: "Standalone Web App For Direct Subscribers"
-    lane: planning
-    status: planning
-    path: ".ai/initiatives/planning/standalone-app"
+    lane: active
+    status: in_progress
+    path: ".ai/initiatives/active/standalone-app"
     blockers:
+      - "Phase 0 is locally code-complete, but Phase 1 stays blocked until CRM/Connect parity checks and the dev deploy/rollback evidence are captured against a committed SHA."
       - "Platform auth, provisioning, and storage contracts must stay aligned while the standalone surface is introduced."
       - "Phase 0 monorepo restructure (npm → pnpm + Turbo, api/ → apps/api/, add apps/web + packages/db) is a hard prerequisite before any subsequent phase can land."
       - "SA-2.0 auth-sso.md logout contract extension must land in the Platform ecosystem before SA-2.2 implementation."
+      - "Docs-local deploy-pipeline-parity Phase 4 must complete before standalone Phase 6 can close as deployment-complete."
+
+  - id: deploy-pipeline-parity
+    title: "Deploy Pipeline Parity For Standalone-Era Docs"
+    lane: planning
+    status: planning
+    path: ".ai/initiatives/planning/deploy-pipeline-parity"
+    blockers:
+      - "Standalone Phase 0 must land before the verify workflow and protected-branch status checks can target stable pnpm/Turbo commands."
+      - "Docs follows ecosystem deploy-pipeline-parity conventions at the invariant layer, but the implementation must remain GCE + NGINX + Cloudflare Tunnel because OnlyOffice is stateful."
+      - "Final standalone deploy parity depends on the post-Phase-0 workspace and the eventual standalone deployment topology being real, not hypothetical."
 
   - id: monolith-docs
     title: "Monolith Docs Platform Setup And Integration"

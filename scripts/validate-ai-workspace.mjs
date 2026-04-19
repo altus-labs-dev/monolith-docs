@@ -9,6 +9,7 @@ const requiredPaths = [
   '.ai',
   '.ai/registry.yml',
   '.ai/backlog.yml',
+  '.ai/handoffs',
   '.ai/iddp',
   '.ai/initiatives/active',
   '.ai/initiatives/planning',

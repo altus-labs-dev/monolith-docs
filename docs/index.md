@@ -5,6 +5,7 @@ The `docs/` directory now holds technical and product documentation, not the act
 ## What Lives Here
 
 - `docs/adr/` — architecture decision records
+- `docs/guides/` — durable operational guides, including Cloud SQL proxy port assignments
 - architecture and implementation reference docs
 - durable product or integration notes that are not active initiative state
 

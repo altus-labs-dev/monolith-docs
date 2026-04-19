@@ -9,6 +9,7 @@ This repo uses a lightweight Initiative-Driven Development Protocol.
 - Checkpoint review defaults to `codex`; add `sonnet` when needed and add `kimi` for frontend-heavy review when useful.
 - Phase close-outs default to multi-reviewer review with `codex` + `sonnet`.
 - Doc sync is required before any commit and at every phase close-out.
+- Refresh `.ai/handoffs/<initiative-id>.md` after checkpoint or phase-close doc sync, or manually via `/initiative handoff`.
 - Every commit requires explicit user approval.
 - Commit-ready stamps and approval stamp files are not part of the active workflow.
 

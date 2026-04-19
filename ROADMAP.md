@@ -4,7 +4,12 @@ High-level feature and delivery status lives here. Detailed execution state live
 
 ## Active
 
-_None._
+### Standalone App
+
+- Status: `in_progress`
+- Summary: Full standalone subscriber-facing surface with Platform SSO, database, provisioning, events, tRPC, and frontend. Phase 0 monorepo restructure is locally code-complete, but CRM/Connect parity evidence plus the dev deploy/rollback gate are still open before Phase 1 can start.
+- Plan: `.ai/initiatives/active/standalone-app/plan.md`
+- Guidance: `.ai/initiatives/active/standalone-app/guidance.md`
 
 ## Complete
 
@@ -17,12 +22,12 @@ _None._
 
 ## Planning
 
-### Standalone App
+### Deploy Pipeline Parity
 
 - Status: `planning`
-- Summary: Full standalone subscriber-facing surface with Platform SSO, database, provisioning, events, tRPC, and frontend.
-- Plan: `.ai/initiatives/planning/standalone-app/plan.md`
-- Guidance: `.ai/initiatives/planning/standalone-app/guidance.md`
+- Summary: CI baseline, protected `main`/`dev`, automated GCE deploys, rollback, and dev-environment parity for the standalone-era Docs stack using ecosystem DPP conventions adapted to OnlyOffice on GCE.
+- Plan: `.ai/initiatives/planning/deploy-pipeline-parity/plan.md`
+- Guidance: `.ai/initiatives/planning/deploy-pipeline-parity/guidance.md`
 
 ## Archive
 

@@ -1,0 +1,30 @@
+{
+  "name": "@monolith-docs/db",
+  "version": "0.1.0",
+  "private": true,
+  "license": "AGPL-3.0-only",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./index.d.ts",
+      "default": "./index.js"
+    }
+  },
+  "scripts": {
+    "generate": "prisma generate",
+    "migrate:dev": "prisma migrate dev && prisma generate",
+    "migrate:deploy": "prisma migrate deploy && prisma generate",
+    "migrate:status": "prisma migrate status",
+    "migrate:reset": "prisma migrate reset"
+  },
+  "dependencies": {
+    "@prisma/client": "^7.7.0"
+  },
+  "devDependencies": {
+    "dotenv": "^16.4.0",
+    "prisma": "^7.7.0"
+  },
+  "engines": {
+    "node": ">=24"
+  }
+}

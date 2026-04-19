@@ -10,6 +10,15 @@ The existing headless API (`/api/documents/open`, `/editor/:key`, `/api/document
 
 Implementation note: preserving headless behavior requires an auth/routing refactor so standalone routes do not pass through the current global consumer-auth plugin.
 
+## Sibling Initiative: `deploy-pipeline-parity`
+
+Standalone product work and deployment-parity work are now intentionally split:
+
+- Docs-local CI/CD, branch protection, dev-environment parity, and rollback automation live in `.ai/initiatives/planning/deploy-pipeline-parity/`.
+- Phase 0 in this plan establishes the stable pnpm/Turbo workspace and command surface that DPP Phase 2 will protect with the repo `verify` workflow.
+- Full deploy/rollback parity is intentionally not front-loaded before Phase 0, because doing so would automate a repo layout and runtime topology that this initiative immediately changes.
+- Do not treat Standalone Phase 6 as deployment-complete while DPP Phase 4 is still open. The final standalone stack must be what the parity initiative actually automates.
+
 ---
 
 ## Phase 0: Monorepo restructure to Monolith convention
@@ -20,12 +29,29 @@ Implementation note: preserving headless behavior requires an auth/routing refac
 
 `production-hardening` closed on 2026-04-18 (see [.ai/initiatives/complete/production-hardening/plan.md](.ai/initiatives/complete/production-hardening/plan.md)), so there is no active-initiative collision to coordinate around. Phase 0 starts clean.
 
+Current state as of 2026-04-19: the repo restructure is locally code-complete, review attempt 2 resolved the fresh-VM `deploy-ref` bug in `infrastructure/gce/startup.sh`, and the pre-deploy safety review now passes after tightening the hosted `.env` bootstrap rules in `startup.sh` and `deploy.sh`. Phase 0 is still open because the required real CRM/Connect parity checks, dev GCE deploy verification, and rollback evidence have not been captured yet.
+
+Checkpoint sequencing rule for Phase 0:
+
+1. Finish the local repo/tooling changes and run the strongest local verification available.
+2. Run a local pre-deploy safety review and fix any findings before creating a deployable SHA.
+3. Only after the local safety review is clean enough to justify external testing should a commit/push be created for Track C.
+4. Run Track C against that reviewed SHA and capture deploy/rollback evidence.
+5. Run the final checkpoint closeout review against the full Phase 0 evidence before marking the phase complete.
+
+Do not deploy unreviewed or known-broken Phase 0 code just to satisfy the rollback gate. Track C is acceptance evidence for reviewed code, not a substitute for the local review/fix loop.
+
+Review intent for Phase 0 is explicitly split:
+
+- Pre-deploy safety review: asks whether the local code and deploy substrate are safe enough to create a dev-testable SHA. This review can pass while Track C is still unrun.
+- Checkpoint closeout review: asks whether the full Phase 0 acceptance set is complete, including Track C evidence and rollback capture. This review cannot pass until after the dev deploy work is done.
+
 ### SA-0.0 Pre-flight confirmation
 
 - Confirm `.ai/registry.yml` and `ROADMAP.md` show `production-hardening` as `completed` (no open checkpoints that assume the pre-Phase-0 layout)
 - Cross-project check: update `C:\Dev\monolith-platform\docs\ecosystem\integration-status\monolith-docs.yaml` if it references current paths that will change in Phase 0 (`api/` → `apps/api/`, npm → pnpm)
 - Capture the current prod deployment snapshot — public IPs, Cloudflare A records, tunnel config — so rollback in SA-0.5 Track C has a known-good baseline to compare against. In particular record that prod VM is `monolith-docs` at `34.44.51.7` and that the Cloudflare `app` A record must point there (previous drift to a stale dev-VM IP was resolved in the `production-hardening` closeout; recurrence protection is a future hardening item, not in this scope).
-- Status: Pending
+- Status: In Progress — registry/ROADMAP are aligned; rollback baseline capture and the Platform integration-status sync still need to be recorded in the Phase 0 closeout.
 - Acceptance: Registry and ROADMAP reflect production-hardening complete. Platform ecosystem integration-status file is current. Rollback baseline recorded in the Phase 0 handoff.
 
 ### SA-0.1 Migrate to pnpm + Turbo
@@ -35,7 +61,7 @@ Implementation note: preserving headless behavior requires an auth/routing refac
 - Root `package.json` switches `scripts` to `turbo run <task>` form; set `"packageManager": "pnpm@10.33.0+..."` matching sibling repos
 - Bump `engines.node` from `>=22` to `>=24` and verify the Docker image and GCE startup scripts still pin compatible Node
 - Update `scripts/validate-ai-workspace.mjs` if it references npm/workspaces paths that move
-- Status: Pending
+- Status: In Progress — pnpm + Turbo, Node 24, and the repo command surface landed; local `typecheck`, `lint`, `test`, and Docker verification passed, but headless parity evidence is still pending.
 - Acceptance: `pnpm install` resolves cleanly; `pnpm run typecheck`, `pnpm run lint`, `pnpm run test` all pass; Docker Compose starts the existing API service; no behavior change in headless routes
 
 ### SA-0.2 Move `api/` to `apps/api/`
@@ -45,7 +71,7 @@ Implementation note: preserving headless behavior requires an auth/routing refac
 - Update every path reference: `docker-compose.yml` build contexts and volume mounts, `Dockerfile` WORKDIR and COPY paths, `infrastructure/gce/startup.sh` and `deploy.sh`, NGINX config if it references paths, `scripts/*`, `.github/workflows/*` if present
 - Update `tsconfig.json` paths, any `tsconfig.*.json` `extends`, Vitest config paths
 - Verify `npm --prefix api run <x>` references in docs and CLAUDE.md no longer apply — update to `pnpm --filter @monolith-docs/api run <x>`
-- Status: Pending
+- Status: In Progress — `api/` moved to `apps/api/`, local compose/API health checks pass, and the deploy paths were updated; the real consumer round-trip gate is still open.
 - Acceptance: `pnpm --filter @monolith-docs/api run typecheck|lint|test` all pass; `docker compose build && docker compose up -d` brings the full existing stack up; a round-trip document-open → edit → callback → close still works against a real consumer credential
 
 ### SA-0.3 Scaffold `packages/db/` under pnpm workspace
@@ -56,7 +82,7 @@ Implementation note: preserving headless behavior requires an auth/routing refac
 - Prisma schema file lives at `packages/db/prisma/schema.prisma`; migrations at `packages/db/prisma/migrations/`
 - Empty placeholder schema — actual tables land in SA-1.2
 - Add to root `onlyBuiltDependencies` the Prisma client/engines entries sibling repos already whitelist
-- Status: Pending
+- Status: In Progress — `packages/db/` and Prisma 7.7 landed and `generate` passes; root `onlyBuiltDependencies` alignment can be finalized with the rest of the Phase 0 closeout.
 - Acceptance: `pnpm --filter @monolith-docs/db run generate` succeeds; `apps/api` can import `@monolith-docs/db` via `workspace:*`
 
 ### SA-0.4 Update `CLAUDE.md`, `README.md`, and verification commands
@@ -64,12 +90,14 @@ Implementation note: preserving headless behavior requires an auth/routing refac
 - Every command reference to `npm --prefix api run <x>` becomes `pnpm --filter @monolith-docs/api run <x>`
 - Update the architecture diagram in `CLAUDE.md` to show `apps/` and `packages/` rather than a single `api/`
 - Confirm the repo-local `/tests` skill points at the right commands
-- Status: Pending
+- Status: In Progress — `CLAUDE.md`, `README.md`, and the control-plane docs now point at pnpm/Turbo and `apps/*`; clean-checkout quickstart evidence is still bundled into the open Phase 0 gate.
 - Acceptance: `CLAUDE.md` verification section lists commands that actually work against the new layout; `README.md` quickstart runs end-to-end without edits
 
 ### SA-0.5 Headless parity — concrete verification matrix
 
 Codex correctly flagged that "full headless verification matrix" was under-specified. Define it explicitly as a checklist below. Record results in the checkpoint review document. This is the gate between Phase 0 and Phase 1.
+
+Track sequencing note: Track C happens after the local pre-deploy safety review produces a reviewed SHA that is worth deploying. If that review still has unresolved findings, stop and fix them before pushing or deploying. If the dev deploy exposes new issues, fix them locally, re-review, and only then treat Track C as complete.
 
 **Matrix is split into two tracks** so a mechanical-move regression is distinguishable from a runtime-upgrade regression:
 
@@ -110,7 +138,7 @@ Run before bumping Node or introducing Prisma to isolate moveset failures from r
 - [ ] Identified rollback path: document the exact commit SHA of the pre-Phase-0 baseline, confirm `git revert` or branch reset + redeploy brings the dev instance back to the baseline within 10 minutes, and record the rollback recipe in `ERRORS.md` or the initiative handoff. Do NOT close Phase 0 without this recipe recorded.
 - [ ] Production deploy is out of scope for Phase 0 closeout — production migration happens in Phase 6 (SA-6.3). Phase 0 closes on dev verification only.
 
-- Status: Pending
+- Status: In Progress — local verification is green and the GCE deploy-script blocker from review attempt 1 is fixed, but Tracks A/B external evidence and Track C dev deploy/rollback remain open.
 - Acceptance: Every Track A and Track B item is checked. Track C rollback recipe is recorded and dry-run tested on dev. Any failure blocks Phase 1. Skipping or hand-waving a matrix item is grounds for checkpoint rejection.
 
 ---
@@ -615,8 +643,10 @@ This step is an ecosystem-layer deliverable that blocks SA-2.2. It does not belo
 
 Target stack matches `monolith-platform/apps/portal` so shared tooling (UI components, tRPC setup, auth context patterns) transfers cleanly.
 
+Version policy: use the current ecosystem-approved frontend baseline at implementation time, not stale draft-era pins. As of this plan refresh, that means Next.js 16.x on React 19.x, aligned with the active Platform `stack-upgrade` initiative.
+
 - Create `apps/web/` as `@monolith-docs/web` workspace package
-- Next.js 15, React 19, App Router, TypeScript 6.0.3
+- Next.js 16.x, React 19.x, App Router, TypeScript 6.0.3
 - Dependencies (pinned to match Platform portal versions):
   - `@monolith-platform/ui` from Artifact Registry (`^0.1.0` or current)
   - `@tanstack/react-query` `^5.75.0`
@@ -624,7 +654,7 @@ Target stack matches `monolith-platform/apps/portal` so shared tooling (UI compo
   - `superjson` `^2.2.2`
   - `lucide-react` `^0.460.0`
   - `jose` `^4.15.0` (if any client-side token inspection is ever needed; otherwise skip)
-  - `next` `^15.3.0`, `react` `^19.1.0`, `react-dom` `^19.1.0`
+  - `next` `^16.1.0` or the current validated 16.x patch from Platform STACK, `react` / `react-dom` on the current validated 19.x patch
 - Dev dependencies:
   - `tailwindcss` `^4.1.0`, `@tailwindcss/postcss` `^4.1.0`
   - `@playwright/test` `^1.59.1`

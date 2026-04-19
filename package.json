@@ -4,15 +4,22 @@
   "private": true,
   "description": "Open-source document editing service built on OnlyOffice DocumentServer",
   "license": "AGPL-3.0-only",
-  "workspaces": ["api"],
+  "packageManager": "pnpm@10.33.0+sha512.10568bb4a6afb58c9eb3630da90cc9516417abebd3fabbe6739f0ae795728da1491e9db5a544c76ad8eb7570f5c4bb3d6c637b2cb41bfdcdb47fa823c8649319",
   "scripts": {
-    "dev": "npm run dev --workspace=api",
-    "build": "npm run build --workspace=api",
-    "lint": "npm run lint --workspace=api",
-    "typecheck": "npm run typecheck --workspace=api",
-    "test": "npm run test --workspace=api"
+    "dev": "node scripts/run-turbo.mjs dev",
+    "build": "node scripts/run-turbo.mjs build",
+    "lint": "node scripts/run-turbo.mjs lint",
+    "typecheck": "node scripts/run-turbo.mjs typecheck",
+    "test": "node scripts/run-turbo.mjs test",
+    "validate:ai-workspace": "node scripts/validate-ai-workspace.mjs",
+    "clean": "node scripts/run-turbo.mjs clean"
   },
   "engines": {
-    "node": ">=22"
+    "node": ">=24",
+    "pnpm": ">=10.0.0"
+  },
+  "devDependencies": {
+    "turbo": "^2.4.0",
+    "typescript": "6.0.3"
   }
 }

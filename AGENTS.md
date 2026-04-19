@@ -9,7 +9,7 @@ Standalone AGPL document-editing service built around OnlyOffice DocumentServer 
 - Storage: Google Cloud Storage via signed URLs
 - Infrastructure: Docker Compose locally, GCE + NGINX + Cloudflare Tunnel for hosted environments
 - Auth: consumer-issued integration credentials today, Platform SSO planned for the standalone app
-- Runtime: Node.js `22+`, npm workspaces, Vitest, ESLint
+- Runtime: Node.js `24+`, pnpm workspaces, Turbo, Vitest, ESLint
 
 ## Ecosystem
 
