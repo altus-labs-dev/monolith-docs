@@ -8,7 +8,7 @@ set -euo pipefail
 
 ENV="${1:?Usage: ./teardown.sh <env> (dev|prod)}"
 PROJECT_ID="monolith-docs"
-ZONE="us-central1-a"
+ZONE="us-west1-a"
 
 case "${ENV}" in
   dev)  VM_NAME="monolith-docs-dev" ;;

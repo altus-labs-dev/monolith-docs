@@ -29,7 +29,7 @@ Standalone product work and deployment-parity work are now intentionally split:
 
 `production-hardening` closed on 2026-04-18 (see [.ai/initiatives/complete/production-hardening/plan.md](.ai/initiatives/complete/production-hardening/plan.md)), so there is no active-initiative collision to coordinate around. Phase 0 starts clean.
 
-Current state as of 2026-04-19: the repo restructure is locally code-complete, review attempt 2 resolved the fresh-VM `deploy-ref` bug in `infrastructure/gce/startup.sh`, and the pre-deploy safety review now passes after tightening the hosted `.env` bootstrap rules in `startup.sh` and `deploy.sh`. Phase 0 is still open because the required real CRM/Connect parity checks, dev GCE deploy verification, and rollback evidence have not been captured yet.
+Current state as of 2026-04-19: the repo restructure is locally code-complete, review attempt 2 resolved the fresh-VM `deploy-ref` bug in `infrastructure/gce/startup.sh`, and the pre-deploy safety review now passes after tightening the hosted `.env` bootstrap rules in `startup.sh` and `deploy.sh`. A dev VM-local deploy test against SHA `54f44871abc3623704c8ca6e2e0c0136258f406a` now succeeds and reports healthy `/health` and `/api/status`, but that Track C attempt used additional local deploy-substrate fixes (stopped-instance restart handling in `deploy.sh` and non-blocking cloudflared bootstrap in `startup.sh`) that are not committed yet. Phase 0 remains open until those fixes are durably committed and the remaining consumer-path / rollback gates are captured.
 
 Checkpoint sequencing rule for Phase 0:
 
@@ -138,7 +138,7 @@ Run before bumping Node or introducing Prisma to isolate moveset failures from r
 - [ ] Identified rollback path: document the exact commit SHA of the pre-Phase-0 baseline, confirm `git revert` or branch reset + redeploy brings the dev instance back to the baseline within 10 minutes, and record the rollback recipe in `ERRORS.md` or the initiative handoff. Do NOT close Phase 0 without this recipe recorded.
 - [ ] Production deploy is out of scope for Phase 0 closeout — production migration happens in Phase 6 (SA-6.3). Phase 0 closes on dev verification only.
 
-- Status: In Progress — local verification is green and the GCE deploy-script blocker from review attempt 1 is fixed, but Tracks A/B external evidence and Track C dev deploy/rollback remain open.
+- Status: In Progress — local verification is green; a VM-local dev deploy to SHA `54f44871abc3623704c8ca6e2e0c0136258f406a` succeeded and the dev VM was shut back down, but the operator-script fixes used in that attempt are not committed yet, and the dev-hostname / rollback gates remain open.
 - Acceptance: Every Track A and Track B item is checked. Track C rollback recipe is recorded and dry-run tested on dev. Any failure blocks Phase 1. Skipping or hand-waving a matrix item is grounds for checkpoint rejection.
 
 ---

@@ -17,11 +17,14 @@ Phase 0 is locally code-complete for the repo restructure:
 - repo docs and control-plane files updated to the new layout
 - GCE deploy scripts now deploy explicit refs and record current/previous SHAs
 - the fresh-VM `deploy-ref` bug in `infrastructure/gce/startup.sh` is fixed
+- a dev VM-local deploy test to SHA `54f44871abc3623704c8ca6e2e0c0136258f406a` succeeded; `/health` returned `{"status":"ok"}` and `/api/status` returned `{"api":"ok","onlyoffice":"ok","onlyofficeResponse":"true"}`
+- the dev VM `monolith-docs-dev` was shut back down after verification
 
 Checkpoint review status is still `FAIL` because the required external Phase 0 evidence is not captured yet. See:
 
 - `.ai/initiatives/active/standalone-app/reviews/review-phase-0-attempt-1.md`
 - `.ai/initiatives/active/standalone-app/reviews/review-phase-0-attempt-2.md`
+- `.ai/initiatives/active/standalone-app/reviews/review-phase-0-attempt-3.md`
 
 Pre-deploy safety review status is now `PASS`. See:
 
@@ -44,16 +47,17 @@ Pre-deploy safety review status is now `PASS`. See:
 
 ## Open Gates Before Phase 0 Can Close
 
+- Commit and push the latest `deploy.sh` / `startup.sh` fixes used during the successful dev VM-local test
 - Real CRM consumer round-trip verification against a committed SHA
 - Real Connect consumer round-trip verification against a committed SHA
 - Dev GCE deploy of the committed SHA using `infrastructure/gce/deploy.sh`
-- Remote health and Track A/Track C evidence capture on the dev deployment
+- Dev-hostname Track A items on the dev deployment, not just VM-local curls
 - Rollback dry run on dev and recipe capture in the handoff and/or `ERRORS.md`
 - Cross-project sync of `C:\Dev\monolith-platform\docs\ecosystem\integration-status\monolith-docs.yaml` if the Phase 0 path/tooling changes affect it
 
 ## Next Steps
 
-1. Run or refresh a focused pre-deploy safety review for the local Phase 0 state; do not deploy code with unresolved local review findings.
-2. When that pre-deploy review is clean enough, create a deployable checkpoint commit and push that SHA.
-3. Deploy that reviewed SHA with `./infrastructure/gce/deploy.sh dev <sha>`.
-4. Run the required consumer-path and remote deploy checks, then capture the rollback recipe and finish the checkpoint closeout review.
+1. Commit and push the post-`54f4487` deploy-substrate fixes in `infrastructure/gce/deploy.sh` and `infrastructure/gce/startup.sh`.
+2. Re-run the dev deploy against that committed SHA.
+3. Run the required consumer-path and dev-hostname checks, then dry-run rollback to `d22ccd9b436ec4a2aefb6eab7ed6308165e58595`.
+4. Capture the rollback recipe and finish the checkpoint closeout review.

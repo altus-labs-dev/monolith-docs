@@ -11,7 +11,7 @@ set -euo pipefail
 ENV="${1:?Usage: ./deploy.sh <env> (dev|prod) [git-ref]}"
 DEPLOY_REF="${2:-main}"
 PROJECT_ID="monolith-docs"
-REGION="us-central1"
+REGION="us-west1"
 ZONE="${REGION}-a"
 SA_EMAIL="monolith-docs-sa@${PROJECT_ID}.iam.gserviceaccount.com"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -20,6 +20,8 @@ DEPLOY_STATE_DIR="/opt/monolith-docs/.deploy-state"
 DEPLOY_REF_ESCAPED="$(printf '%q' "${DEPLOY_REF}")"
 DEPLOY_ENV_ESCAPED="$(printf '%q' "${ENV}")"
 CREATED_INSTANCE=0
+RUN_REMOTE_DEPLOY=0
+INSTANCE_STATUS=""
 
 case "${ENV}" in
   dev)
@@ -43,6 +45,13 @@ instance_exists() {
     --project="${PROJECT_ID}" \
     --zone="${ZONE}" \
     >/dev/null 2>&1
+}
+
+instance_status() {
+  gcloud compute instances describe "${VM_NAME}" \
+    --project="${PROJECT_ID}" \
+    --zone="${ZONE}" \
+    --format='value(status)'
 }
 
 wait_for_ssh() {
@@ -152,7 +161,8 @@ if ! instance_exists; then
     --metadata="deploy-ref=${DEPLOY_REF},deploy-env=${ENV}" \
     --metadata-from-file=startup-script="${SCRIPT_DIR}/startup.sh"
 else
-  echo "VM ${VM_NAME} already exists."
+  INSTANCE_STATUS="$(instance_status)"
+  echo "VM ${VM_NAME} already exists with status: ${INSTANCE_STATUS}"
 fi
 
 echo "Updating instance metadata..."
@@ -162,10 +172,32 @@ gcloud compute instances add-metadata "${VM_NAME}" \
   --metadata="deploy-ref=${DEPLOY_REF},deploy-env=${ENV}" \
   --metadata-from-file=startup-script="${SCRIPT_DIR}/startup.sh"
 
+if [[ "${CREATED_INSTANCE}" -eq 0 ]]; then
+  case "${INSTANCE_STATUS}" in
+    RUNNING)
+      RUN_REMOTE_DEPLOY=1
+      ;;
+    TERMINATED|SUSPENDED)
+      echo "Starting existing VM ${VM_NAME}..."
+      gcloud compute instances start "${VM_NAME}" \
+        --project="${PROJECT_ID}" \
+        --zone="${ZONE}"
+      ;;
+    PROVISIONING|STAGING)
+      echo "VM ${VM_NAME} is already booting; waiting for SSH."
+      ;;
+    *)
+      echo "Unsupported VM state '${INSTANCE_STATUS}' for deploy."
+      echo "Bring ${VM_NAME} to RUNNING or TERMINATED before retrying."
+      exit 1
+      ;;
+  esac
+fi
+
 wait_for_ssh
 validate_remote_env
 
-if [[ "${CREATED_INSTANCE}" -eq 0 ]]; then
+if [[ "${RUN_REMOTE_DEPLOY}" -eq 1 ]]; then
   echo "Uploading startup script for in-place deploy..."
   gcloud compute scp "${SCRIPT_DIR}/startup.sh" "${VM_NAME}:${REMOTE_STARTUP_SCRIPT}" \
     --project="${PROJECT_ID}" \

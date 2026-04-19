@@ -90,9 +90,16 @@ fi
 # Install cloudflared if not present
 if ! command -v cloudflared &>/dev/null; then
   echo "Installing cloudflared..."
-  curl -L https://pkg.cloudflare.com/cloudflared-stable-linux-amd64.deb -o /tmp/cloudflared.deb
-  dpkg -i /tmp/cloudflared.deb
-  rm /tmp/cloudflared.deb
+  CLOUDFARED_DEB_URL="${CLOUDFLARED_DEB_URL:-https://pkg.cloudflare.com/cloudflared-stable-linux-amd64.deb}"
+
+  if curl -fL "${CLOUDFARED_DEB_URL}" -o /tmp/cloudflared.deb && dpkg -i /tmp/cloudflared.deb; then
+    echo "cloudflared installed."
+  else
+    echo "WARNING: cloudflared installation failed; continuing without it."
+    echo "Configure cloudflared manually if tunnel-based routing is required on this VM."
+  fi
+
+  rm -f /tmp/cloudflared.deb
 fi
 
 # Create directory for Cloudflare origin certificates
